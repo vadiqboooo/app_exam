@@ -1,0 +1,17 @@
+.venv/
+.claude/settings.local.json
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.env
+data/
+backups/
+node_modules/
+dist/
+build/
+*.spec
+test-results/
+playwright-report/
+frontend/tests/fixtures/
+Список.xlsx
