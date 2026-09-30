@@ -27,7 +27,8 @@ test('Выбор классов, пересчёт изменений и сохр
     await page.getByRole('button', { name: 'Сотрудник', exact: true }).click();
     await page.getByLabel('Ключ доступа').fill('e2e-test-key');
     await page.getByRole('button', { name: 'Войти', exact: true }).click();
-    await page.getByRole('link', { name: 'Импорт CRM', exact: true }).first().click();
+    await page.getByRole('link', { name: 'Школа', exact: true }).click();
+    await page.getByRole('link', { name: 'Импорт CRM', exact: true }).click();
     await page
       .getByLabel('Файл CRM')
       .setInputFiles(fileURLToPath(new URL('./fixtures/grades.xlsx', import.meta.url)));

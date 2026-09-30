@@ -19,9 +19,10 @@ test('Возврат к странице групп и открытие груп
   await page.getByRole('button', { name: 'Сотрудник', exact: true }).click();
   await page.getByLabel('Ключ доступа').fill('e2e-test-key');
   await page.getByRole('button', { name: 'Войти', exact: true }).click();
+  await page.getByRole('link', { name: 'Школа', exact: true }).click();
   await page.getByRole('link', { name: 'Группы', exact: true }).click();
   await page.getByRole('button', { name: 'Следующая страница' }).click();
-  await expect(page).toHaveURL(/#\/groups\?page=2$/);
+  await expect(page).toHaveURL(/#\/school\/groups\?page=2$/);
   const groupLink = page.getByRole('link', { name: 'Математика Группа 21', exact: true });
   await groupLink.focus();
   await page.keyboard.press('Enter');
@@ -29,7 +30,7 @@ test('Возврат к странице групп и открытие груп
   await expect(page.getByRole('heading', { name: 'Математика Группа 21', exact: true })).toBeVisible();
   await page.reload();
   await page.getByRole('link', { name: 'Назад к группам' }).click();
-  await expect(page).toHaveURL(/#\/groups\?page=2$/);
+  await expect(page).toHaveURL(/#\/school\/groups\?page=2$/);
   await expect(groupLink).toBeVisible();
   await page.goto('/#/groups/120');
   await expect(page.getByRole('heading', { name: 'Математика Группа 21', exact: true })).toBeVisible();

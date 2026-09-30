@@ -43,7 +43,8 @@ test('Excel → экзамен → запись → явка → проверк�
   await page.goto('/');
   await page.screenshot({ path: testInfo.outputPath('login-desktop.png'), fullPage: true });
   await staffLogin(page);
-  await page.getByRole('link', { name: 'Импорт CRM', exact: true }).first().click();
+  await page.getByRole('link', { name: 'Школа', exact: true }).click();
+  await page.getByRole('link', { name: 'Импорт CRM', exact: true }).click();
   await page
     .getByLabel('Файл CRM')
     .setInputFiles(fileURLToPath(new URL('./fixtures/crm.xlsx', import.meta.url)));
@@ -78,6 +79,7 @@ test('Excel → экзамен → запись → явка → проверк�
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole('button', { name: 'Выйти', exact: true }).click();
   await staffLogin(page);
+  await page.getByRole('link', { name: 'Школа', exact: true }).click();
   await page.getByRole('link', { name: 'Предметы', exact: true }).click();
   const informaticsSettings = page
     .getByRole('table', { name: 'Настройки предметов' })

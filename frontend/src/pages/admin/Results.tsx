@@ -15,7 +15,6 @@ export function Results() {
     <div className="stack page-stack">
       <PageHeader
         title="Экзамены и результаты"
-        subtitle="Быстро вносите баллы по заданиям, проверяйте работы и публикуйте результат ученику."
         action={
           <Button icon={<Plus size={17} />} onClick={() => setAdding(true)}>
             Добавить результат
@@ -27,9 +26,15 @@ export function Results() {
         <StatCard title="Результаты внесены" value={completed.length} />
         <StatCard
           title="Ждут проверки"
-          value={data.participations.filter((item) => item.status === 'submitted' && item.primary_score == null).length}
+          value={
+            data.participations.filter((item) => item.status === 'submitted' && item.primary_score == null)
+              .length
+          }
         />
-        <StatCard title="Опубликовано" value={data.participations.filter((item) => item.status === 'published').length} />
+        <StatCard
+          title="Опубликовано"
+          value={data.participations.filter((item) => item.status === 'published').length}
+        />
       </div>
       <div className="section-heading">
         <div>

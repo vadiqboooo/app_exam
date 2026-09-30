@@ -893,3 +893,149 @@ a.cell-person:hover strong {
     width: 100%;
   }
 }
+
+.registrations-table .table-panel {
+  border-radius: 14px;
+}
+.registrations-table th {
+  background: #fff;
+  color: #2f2840;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 16px 20px;
+}
+.registrations-table td {
+  padding: 13px 20px;
+  color: #5b5368;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.registrations-table td strong {
+  display: block;
+  color: #2f2840;
+  font-size: 13px;
+  font-weight: 600;
+}
+.registrations-table td small {
+  margin-top: 3px;
+}
+.registrations-table tbody tr {
+  cursor: pointer;
+}
+.row-action {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #4a4258;
+}
+.row-action:hover {
+  background: var(--purple-light);
+  color: var(--purple);
+}
+
+.slot-days {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.slot-day {
+  padding: 14px 16px 10px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.slot-day h3 {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 650;
+  text-transform: capitalize;
+  color: #2f2840;
+}
+.slot-row {
+  display: block;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.slot-row:hover {
+  background: #faf9fd;
+}
+.slot-row.active {
+  border-color: var(--purple);
+  background: var(--purple-light);
+}
+.slot-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #5b5368;
+}
+.slot-row-head small {
+  display: block;
+  font-size: 10px;
+  color: #a69eb0;
+}
+.slot-row-head strong {
+  font-size: 13px;
+  color: #2f2840;
+}
+.slot-row-head strong small {
+  display: inline;
+  font-weight: 400;
+}
+.slot-bar {
+  display: block;
+  height: 5px;
+  margin-top: 6px;
+  border-radius: 3px;
+  background: #ecebf1;
+  overflow: hidden;
+}
+.slot-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: #2fae66;
+}
+.slot-bar > .high {
+  background: #e08a2b;
+}
+.slot-bar > .full {
+  background: #d64545;
+}
+
+.school-header {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  min-width: 0;
+}
+.school-tabs {
+  overflow-x: auto;
+  padding: 5px;
+}
+.school-tabs a {
+  padding: 12px 22px;
+  border-radius: 8px;
+  font-size: 14px;
+  white-space: nowrap;
+  color: #93899f;
+}
+.school-tabs a.active {
+  background: white;
+  color: var(--purple);
+  box-shadow: 0 1px 5px #4034510a;
+  font-weight: 600;
+}

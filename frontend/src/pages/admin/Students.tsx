@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { Search, Upload } from 'lucide-react';
 import { useWorkspace } from '../../layouts/Workspace';
 import { studentGroups } from '../../lib/format';
-import { PageHeader } from '../../components/PageHeader';
 import { FilterBar } from '../../components/FilterBar';
 import { DataTable } from '../../components/DataTable';
 
@@ -18,16 +17,6 @@ export function Students() {
   );
   return (
     <div className="stack page-stack">
-      <PageHeader
-        title="Ученики"
-        subtitle="Текущие группы и полная история обучения."
-        action={
-          <Link to="/import" className="button button-secondary">
-            <Upload size={17} />
-            Импорт учеников
-          </Link>
-        }
-      />
       <FilterBar>
         <div className="search-input">
           <Search size={17} />
@@ -49,7 +38,10 @@ export function Students() {
             </button>
           ))}
         </div>
-        <span className="filter-count">{rows.length} учеников</span>
+        <Link to="/school/import" className="button button-secondary">
+          <Upload size={17} />
+          Импорт учеников
+        </Link>
       </FilterBar>
       <DataTable
         rows={rows}

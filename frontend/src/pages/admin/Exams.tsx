@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Search } from 'lucide-react';
 import { useWorkspace } from '../../layouts/Workspace';
-import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/Button';
 import { ExamCard } from '../../components/ExamCard';
 import { ExamForm } from '../../components/ExamForm';
@@ -23,15 +22,6 @@ export function Exams() {
   );
   return (
     <div className="stack page-stack">
-      <PageHeader
-        title="Пробники"
-        subtitle="Планируйте экзамены и следите за каждым этапом."
-        action={
-          <Button icon={<Plus size={17} />} onClick={() => setCreating(true)}>
-            Создать пробник
-          </Button>
-        }
-      />
       <FilterBar>
         <div className="search-input">
           <Search size={17} />
@@ -47,7 +37,9 @@ export function Exams() {
           <option value="oge">ОГЭ</option>
           <option value="ege">ЕГЭ</option>
         </select>
-        <span className="filter-count">Всего: {groupExams(exams).length}</span>
+        <Button icon={<Plus size={17} />} onClick={() => setCreating(true)}>
+          Создать пробник
+        </Button>
       </FilterBar>
       {exams.length ? (
         <div className="exam-list">

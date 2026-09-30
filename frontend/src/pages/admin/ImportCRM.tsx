@@ -4,7 +4,6 @@ import { api } from '../../api/client';
 import type { ChangeKey, ImportAnalysis, ImportPreview } from '../../types';
 import { useWorkspace } from '../../layouts/Workspace';
 import { useAction } from '../../hooks/useAction';
-import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/Button';
 import { ErrorNotice } from '../../components/ErrorNotice';
 import { DataTable } from '../../components/DataTable';
@@ -74,10 +73,6 @@ export function ImportCRM() {
   };
   return (
     <div className="stack page-stack">
-      <PageHeader
-        title="Импорт CRM"
-        subtitle="Обновляйте учеников, группы и учителей, сохраняя всю историю обучения."
-      />
       <ErrorNotice message={error} />
       {success && (
         <div className="success-notice" role="status">

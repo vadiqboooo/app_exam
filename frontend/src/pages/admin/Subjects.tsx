@@ -7,7 +7,6 @@ import { DataTable } from '../../components/DataTable';
 import { ErrorNotice } from '../../components/ErrorNotice';
 import { FilterBar } from '../../components/FilterBar';
 import { Modal } from '../../components/Modal';
-import { PageHeader } from '../../components/PageHeader';
 import { useAction } from '../../hooks/useAction';
 import { useLoad } from '../../hooks/useLoad';
 import type { GradeRange, SubjectSetting, SubjectSettingWrite, Task } from '../../types';
@@ -241,15 +240,6 @@ export function Subjects() {
 
   return (
     <div className="stack page-stack">
-      <PageHeader
-        title="Настройки предметов"
-        subtitle="Настройте задания и максимальные первичные баллы отдельно для ОГЭ и ЕГЭ."
-        action={
-          <Button icon={<Plus size={17} />} onClick={() => setEditing(null)}>
-            Добавить предмет
-          </Button>
-        }
-      />
       <ErrorNotice message={error} />
       <FilterBar>
         <div className="search-input">
@@ -270,7 +260,9 @@ export function Subjects() {
           <option value="oge">ОГЭ</option>
           <option value="ege">ЕГЭ</option>
         </select>
-        <span className="filter-count">Всего: {subjects.length}</span>
+        <Button icon={<Plus size={17} />} onClick={() => setEditing(null)}>
+          Добавить предмет
+        </Button>
       </FilterBar>
       {loading && !data ? (
         <div className="loading" role="status">

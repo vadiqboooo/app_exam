@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useSectionTitle } from '../layouts/AppLayout';
 
 export function PageHeader({
   title,
@@ -9,10 +10,12 @@ export function PageHeader({
   subtitle?: string;
   action?: ReactNode;
 }) {
+  const duplicate = title === useSectionTitle();
+  if (duplicate && !subtitle && !action) return null;
   return (
-    <div className="page-header">
+    <div className={`page-header ${duplicate && !subtitle ? 'page-header-bare' : ''}`}>
       <div>
-        <h1>{title}</h1>
+        {!duplicate && <h1>{title}</h1>}
         {subtitle && <p>{subtitle}</p>}
       </div>
       {action}

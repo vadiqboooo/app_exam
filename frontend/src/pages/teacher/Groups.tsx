@@ -15,7 +15,6 @@ export function Groups({ title }: { title: string }) {
   const state = { from: location.pathname + location.search };
   return (
     <div className="stack page-stack">
-      <p className="muted">Выберите группу, чтобы посмотреть учеников и их участие в пробниках.</p>
       {groups.length ? (
         <DataTable
           rows={groups}

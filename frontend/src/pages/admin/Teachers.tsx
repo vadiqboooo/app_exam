@@ -7,7 +7,6 @@ import { DataTable } from '../../components/DataTable';
 import { ErrorNotice } from '../../components/ErrorNotice';
 import { FilterBar } from '../../components/FilterBar';
 import { Modal } from '../../components/Modal';
-import { PageHeader } from '../../components/PageHeader';
 import { useAction } from '../../hooks/useAction';
 import { useLoad } from '../../hooks/useLoad';
 import { useWorkspace } from '../../layouts/Workspace';
@@ -47,12 +46,7 @@ function TeacherForm({
     });
   }
   return (
-    <Modal
-      title={teacher ? 'Редактировать учителя' : 'Добавить учителя'}
-      onClose={onClose}
-      wide
-      busy={busy}
-    >
+    <Modal title={teacher ? 'Редактировать учителя' : 'Добавить учителя'} onClose={onClose} wide busy={busy}>
       <form onSubmit={submit}>
         <div className="modal-body stack">
           <ErrorNotice message={error} />
@@ -156,15 +150,6 @@ export function Teachers() {
   };
   return (
     <div className="stack page-stack">
-      <PageHeader
-        title="Учителя"
-        subtitle="Управляйте входом учителей и назначайте им учебные группы."
-        action={
-          <Button icon={<Plus size={17} />} onClick={() => setEditing(null)}>
-            Добавить учителя
-          </Button>
-        }
-      />
       <ErrorNotice message={error} />
       <FilterBar>
         <div className="search-input">
@@ -176,10 +161,14 @@ export function Teachers() {
             onChange={(event) => setSearch(event.target.value)}
           />
         </div>
-        <span className="filter-count">Всего: {teachers.length}</span>
+        <Button icon={<Plus size={17} />} onClick={() => setEditing(null)}>
+          Добавить учителя
+        </Button>
       </FilterBar>
       {loading && !data ? (
-        <div className="loading" role="status">Загружаем учителей…</div>
+        <div className="loading" role="status">
+          Загружаем учителей…
+        </div>
       ) : (
         <DataTable
           rows={teachers}

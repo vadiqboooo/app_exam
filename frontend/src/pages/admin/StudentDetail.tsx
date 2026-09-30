@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { useWorkspace } from '../../layouts/Workspace';
 import { StudentCard } from '../../components/StudentCard';
@@ -9,15 +9,16 @@ import { date } from '../../lib/format';
 
 export function StudentDetail() {
   const { id } = useParams();
+  const back = (useLocation().state as { backTo?: string; backLabel?: string } | null) ?? {};
   const { data } = useWorkspace();
   const student = data.students.find((s) => s.id === Number(id));
   if (!student) return <EmptyState title="Ученик не найден" />;
   const memberships = data.memberships.filter((m) => m.student_id === student.id).sort((a, b) => b.id - a.id);
   return (
     <div className="stack page-stack">
-      <Link to="/students" className="back-link">
+      <Link to={back.backTo ?? '/school/students'} className="back-link">
         <ArrowLeft size={16} />
-        Все ученики
+        {back.backLabel ?? 'Все ученики'}
       </Link>
       <StudentCard student={student} />
       <div className="section-heading">

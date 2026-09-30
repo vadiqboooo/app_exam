@@ -12,7 +12,7 @@ export function GroupDetail() {
   const { data, refresh } = useWorkspace();
   const group = data.groups.find((g) => g.id === Number(id));
   const from = location.state?.from;
-  const back = typeof from === 'string' && /^\/groups(?:\?|$)/.test(from) ? from : '/groups';
+  const back = typeof from === 'string' && /^\/(?:school\/)?groups(?:\?|$)/.test(from) ? from : '/groups';
   const students = data.students.filter(
     (s) =>
       s.is_active &&

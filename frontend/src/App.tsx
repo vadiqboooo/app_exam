@@ -9,12 +9,9 @@ import { Dashboard } from './pages/admin/Dashboard';
 import { Exams } from './pages/admin/Exams';
 import { ExamDetail } from './pages/admin/ExamDetail';
 import { ExamEventDetail } from './pages/admin/ExamEventDetail';
-import { Students } from './pages/admin/Students';
-import { Teachers } from './pages/admin/Teachers';
-import { Subjects } from './pages/admin/Subjects';
+import { School } from './pages/admin/School';
 import { StudentDetail } from './pages/admin/StudentDetail';
 import { Results } from './pages/admin/Results';
-import { ImportCRM } from './pages/admin/ImportCRM';
 import { Groups } from './pages/teacher/Groups';
 import { GroupDetail } from './pages/teacher/GroupDetail';
 import { AvailableExams } from './pages/student/AvailableExams';
@@ -74,11 +71,8 @@ export default function App() {
                   <Route path="/exams" element={<Exams />} />
                   <Route path="/exams/:id" element={<ExamDetail />} />
                   <Route path="/exam-events/:id" element={<ExamEventDetail />} />
-                  <Route path="/students" element={<Students />} />
                   <Route path="/students/:id" element={<StudentDetail />} />
-                  <Route path="/teachers" element={<Teachers />} />
-                  <Route path="/subjects" element={<Subjects />} />
-                  <Route path="/import" element={<ImportCRM />} />
+                  <Route path="/school/*" element={<School />} />
                 </>
               )}
               <Route path="/groups" element={<Groups title={teacher ? 'Мои группы' : 'Группы'} />} />

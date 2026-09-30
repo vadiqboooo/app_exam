@@ -17,9 +17,8 @@ export function Dashboard() {
     <div className="stack page-stack">
       <PageHeader
         title="Главная"
-        subtitle="Всё, что нужно для организации пробных экзаменов."
         action={
-          <Link className="button button-secondary" to="/import">
+          <Link className="button button-secondary" to="/school/import">
             <Upload size={16} />
             Импорт CRM
           </Link>
