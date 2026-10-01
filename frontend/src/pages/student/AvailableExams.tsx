@@ -1,21 +1,33 @@
 import { useState } from 'react';
-import { ArrowRight, BookOpen, Building2, CalendarDays, Clock3, MapPin, Plus, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import {
+  ArrowRight,
+  BookOpen,
+  Building2,
+  CalendarDays,
+  ChevronRight,
+  Clock3,
+  Hourglass,
+  MapPin,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { useStudentWorkspace } from '../../layouts/StudentWorkspace';
 import { api } from '../../api/client';
-import { examTitle, groupExams, registrationState } from '../../lib/format';
+import { examDate, examTitle, groupExams, registrationState, score } from '../../lib/format';
 import { useAction } from '../../hooks/useAction';
 import { Button } from '../../components/Button';
 import { ErrorNotice } from '../../components/ErrorNotice';
 import { StatusBadge } from '../../components/StatusBadge';
-import { StudentExamEvent } from '../../components/StudentExamEvent';
+import { BookingFlow } from '../../components/BookingFlow';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { SlotPicker } from '../../components/SlotPicker';
 
 const month = (value: string) =>
-  new Intl.DateTimeFormat('ru-RU', { month: 'long' }).format(new Date(value)).toUpperCase();
+  new Intl.DateTimeFormat('ru-RU', { month: 'short' }).format(new Date(value)).replace('.', '').toUpperCase();
 const day = (value: string) => new Intl.DateTimeFormat('ru-RU', { day: '2-digit' }).format(new Date(value));
 const weekday = (value: string) =>
-  new Intl.DateTimeFormat('ru-RU', { weekday: 'long' }).format(new Date(value));
+  new Intl.DateTimeFormat('ru-RU', { weekday: 'short' }).format(new Date(value));
 const time = (value: string) =>
   new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 
@@ -64,16 +76,7 @@ export function AvailableExams() {
   const canBook = data.student.is_active && bookableGroups.length > 0;
   const bookableTitles = [...new Set(bookableGroups.map((subjects) => examTitle(subjects[0])))];
   const bookingPanel = bookingOpen && selectedGroup && (
-    <section className="inline-booking-panel" aria-label="Запись на экзамен">
-      <div className="inline-booking-header">
-        <div>
-          <span>ЗАПИСЬ НА ПРОБНИК</span>
-          <h3>Выберите предмет, школу и время</h3>
-        </div>
-        <Button variant="secondary" onClick={() => setBookingOpen(false)}>
-          Вернуться к расписанию
-        </Button>
-      </div>
+    <section className="inline-booking-panel booking-flow-panel" aria-label="Запись на экзамен">
       <div className="inline-booking-body">
         {bookableGroups.length > 1 && (
           <div className="booking-event-selector" role="tablist" aria-label="Доступные пробники">
@@ -92,10 +95,10 @@ export function AvailableExams() {
           </div>
         )}
         {selectedGroup[0].event_id ? (
-          <StudentExamEvent
+          <BookingFlow
+            key={selectedGroup[0].event_id}
             exams={selectedGroup}
-            showRegistrations={false}
-            onRegistered={() => setBookingOpen(false)}
+            onClose={() => setBookingOpen(false)}
           />
         ) : (
           <article className="standalone-booking-card">
@@ -125,8 +128,47 @@ export function AvailableExams() {
     </section>
   );
 
+  const latest = data.results
+    .flatMap((result) => {
+      const exam = data.exams.find((candidate) => candidate.id === result.exam_id);
+      return exam ? [{ result, exam, at: examDate(exam, result.slot_id) }] : [];
+    })
+    .sort((a, b) => b.at.localeCompare(a.at));
+  const lastResult = latest[0];
+  const beforeLast = lastResult
+    ? latest.find(
+        (item) =>
+          item.result.id !== lastResult.result.id &&
+          item.exam.subject === lastResult.exam.subject &&
+          item.result.test_score != null,
+      )
+    : undefined;
+  const lastDelta =
+    lastResult?.result.test_score != null && beforeLast?.result.test_score != null
+      ? lastResult.result.test_score - beforeLast.result.test_score
+      : null;
+  const reviewing = data.participations
+    .filter(
+      (item) =>
+        ['attended', 'submitted', 'checked'].includes(item.status) &&
+        !data.results.some((result) => result.id === item.id),
+    )
+    .flatMap((item) => data.exams.filter((exam) => exam.id === item.exam_id));
+
+  if (bookingOpen && selectedGroup)
+    return (
+      <div className="stack page-stack student-home">
+        <ErrorNotice message={action.error} />
+        {bookingPanel}
+      </div>
+    );
+
   return (
     <div className="stack page-stack student-home">
+      <div className="student-greeting">
+        <h1>Привет, {data.student.full_name.split(/\s+/)[1] ?? data.student.full_name}!</h1>
+        <p>Здесь ваши записи на пробники и ближайшие экзамены.</p>
+      </div>
       <ErrorNotice message={action.error} />
       {!data.student.is_active && (
         <div className="info-panel">
@@ -270,6 +312,20 @@ export function AvailableExams() {
                     <StatusBadge status={participation.status} />
                     {participation.status === 'registered' && (
                       <div className="schedule-record-actions">
+                        {editable && slot && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              action.clearError();
+                              setBookingOpen(false);
+                              setEditSlotId(String(slot.id));
+                              setEditingParticipationId(participation.id);
+                            }}
+                          >
+                            Изменить время
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="is-danger"
@@ -279,7 +335,7 @@ export function AvailableExams() {
                             setDeletingParticipationId(participation.id);
                           }}
                         >
-                          <Trash2 size={14} /> Удалить
+                          <Trash2 size={14} /> Отменить запись
                         </button>
                       </div>
                     )}
@@ -323,8 +379,6 @@ export function AvailableExams() {
         )}
       </section>
 
-      {schedule.length > 0 && bookingPanel}
-
       {schedule.length > 0 && canBook && !bookingOpen && (
         <button
           type="button"
@@ -349,6 +403,45 @@ export function AvailableExams() {
             Выбрать предметы <ArrowRight size={17} />
           </span>
         </button>
+      )}
+
+      {(lastResult || reviewing.length > 0) && (
+        <section className="home-results" aria-label="Последние результаты">
+          <div className="home-results-head">
+            <h2>Последние результаты</h2>
+            <Link to="/my-results">Все</Link>
+          </div>
+          {lastResult && (
+            <Link className="home-result" to={`/my-results/${lastResult.result.id}`}>
+              <span className="home-result-score">
+                <strong>{score(lastResult.result.test_score ?? lastResult.result.primary_score)}</strong>
+                <small>баллов</small>
+              </span>
+              <span className="home-result-text">
+                <b>{lastResult.exam.subject}</b>
+                <small>{examTitle(lastResult.exam)}</small>
+                {lastDelta != null && (
+                  <em className={lastDelta < 0 ? 'is-down' : ''}>
+                    {lastDelta >= 0 ? '+' : ''}
+                    {lastDelta} к прошлому
+                  </em>
+                )}
+              </span>
+              <ChevronRight size={20} />
+            </Link>
+          )}
+          {reviewing.map((exam) => (
+            <div className="home-result home-result-pending" key={exam.id}>
+              <span className="home-result-score">
+                <Hourglass size={24} />
+              </span>
+              <span className="home-result-text">
+                <b>{exam.subject}</b>
+                <small>Работа на проверке. Результат появится здесь, когда учитель его опубликует.</small>
+              </span>
+            </div>
+          ))}
+        </section>
       )}
 
       {deletingRegistration && (

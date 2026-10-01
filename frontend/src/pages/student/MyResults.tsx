@@ -1,84 +1,65 @@
 import { useState } from 'react';
-import { ArrowUpRight, CalendarDays, Award } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ChevronRight, Hourglass } from 'lucide-react';
 import { useStudentWorkspace } from '../../layouts/StudentWorkspace';
-import { PageHeader } from '../../components/PageHeader';
-import { FilterBar } from '../../components/FilterBar';
 import { EmptyState } from '../../components/EmptyState';
-import { Modal } from '../../components/Modal';
-import { ResultDetails } from '../../components/ResultDetails';
-import { date, examDate, examTitle, score } from '../../lib/format';
+import { examDate, examTitle, score } from '../../lib/format';
+
+const shortMonth = (value: string) =>
+  new Intl.DateTimeFormat('ru-RU', { month: 'short' }).format(new Date(value)).replace('.', '');
+const shortDay = (value: string) =>
+  new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' })
+    .format(new Date(value))
+    .replace('.', '');
 
 export function MyResults() {
   const { data } = useStudentWorkspace();
   const [subject, setSubject] = useState('');
-  const [selected, setSelected] = useState<number>();
   const results = data.results
     .flatMap((result) => {
       const exam = data.exams.find((e) => e.id === result.exam_id);
-      return exam ? [{ result, exam }] : [];
+      return exam ? [{ result, exam, at: examDate(exam, result.slot_id) }] : [];
     })
-    .sort((a, b) => a.exam.starts_at.localeCompare(b.exam.starts_at));
-  const subjects = [...new Set(results.map((r) => r.exam.subject))];
-  const current = results.find((r) => r.result.id === selected);
+    .sort((a, b) => a.at.localeCompare(b.at));
+  const pending = data.participations
+    .filter(
+      (item) =>
+        ['attended', 'submitted', 'checked'].includes(item.status) &&
+        !data.results.some((result) => result.id === item.id),
+    )
+    .flatMap((item) => {
+      const exam = data.exams.find((e) => e.id === item.exam_id);
+      return exam ? [exam] : [];
+    });
+  const subjects = [...new Set([...results.map((r) => r.exam.subject), ...pending.map((e) => e.subject)])];
+  const shown = subjects.filter((s) => !subject || s === subject);
+
   return (
-    <div className="stack page-stack">
-      <PageHeader
-        title="Мои результаты"
-        subtitle="Ваш прогресс, подробные баллы и обратная связь преподавателя."
-      />
-      {results.length ? (
-        <>
-          <FilterBar>
-            <select
-              aria-label="Предмет результатов"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-            >
-              <option value="">Все предметы</option>
-              {subjects.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
-            <span className="muted small">Только опубликованные результаты</span>
-          </FilterBar>
-          {subjects
-            .filter((s) => !subject || s === subject)
-            .map((s) => (
-              <section key={s} className="stack">
-                <div className="section-heading">
-                  <h2>{s}</h2>
-                </div>
-                <div className="results-grid">
-                  {results
-                    .filter((r) => r.exam.subject === s)
-                    .map(({ result, exam }) => (
-                      <button className="result-card" key={result.id} onClick={() => setSelected(result.id)}>
-                        <div className="between">
-                          <span className="badge badge-checked">
-                            {exam.format?.toUpperCase() ?? (exam.type === 'ege' ? 'ЕГЭ' : 'Пробник')}
-                          </span>
-                          <ArrowUpRight size={18} />
-                        </div>
-                        <h3>{examTitle(exam)}</h3>
-                        <span className="exam-date">
-                          <CalendarDays size={15} />
-                          {date(examDate(exam, result.slot_id))}
-                        </span>
-                        <div className="result-score">
-                          <Award size={25} />
-                          <strong>{score(result.test_score ?? result.primary_score)}</strong>
-                          <span>{result.test_score == null ? 'первичных баллов' : 'баллов'}</span>
-                        </div>
-                        <span className="card-link">
-                          Посмотреть результат <ArrowUpRight size={16} />
-                        </span>
-                      </button>
-                    ))}
-                </div>
-              </section>
-            ))}
-        </>
-      ) : (
+    <div className="sr-page">
+      <div className="sr-title">
+        <h1>Мои результаты</h1>
+        <small>Баллы появляются после публикации учителем</small>
+      </div>
+      {subjects.length > 1 && (
+        <div className="sr-chips" role="group" aria-label="Предмет">
+          {['', ...subjects].map((s) => (
+            <button type="button" key={s || 'all'} aria-pressed={subject === s} onClick={() => setSubject(s)}>
+              {s || 'Все'}
+            </button>
+          ))}
+        </div>
+      )}
+      {pending
+        .filter((exam) => !subject || exam.subject === subject)
+        .map((exam) => (
+          <div className="sr-pending" key={exam.id}>
+            <Hourglass size={22} />
+            <span>
+              <b>{exam.subject}</b> · {examTitle(exam)} — работа на проверке
+            </span>
+          </div>
+        ))}
+      {!subjects.length && (
         <div className="panel">
           <EmptyState
             title="Ваша история результатов начинается здесь"
@@ -86,13 +67,72 @@ export function MyResults() {
           />
         </div>
       )}
-      {current && (
-        <Modal title="Подробный результат" onClose={() => setSelected(undefined)} wide>
-          <div className="modal-body">
-            <ResultDetails result={current.result} exam={current.exam} />
-          </div>
-        </Modal>
-      )}
+      {shown.map((name) => {
+        const list = results.filter((r) => r.exam.subject === name);
+        if (!list.length) return null;
+        const last = list[list.length - 1];
+        const prev = list[list.length - 2];
+        const lastScore = last.result.test_score ?? last.result.primary_score;
+        const delta =
+          prev && last.result.test_score != null && prev.result.test_score != null
+            ? last.result.test_score - prev.result.test_score
+            : null;
+        const peak = Math.max(...list.map((r) => r.result.test_score ?? r.result.primary_score ?? 0), 1);
+        return (
+          <section className="sr-subject" key={name}>
+            <div className="sr-subject-head">
+              <div>
+                <span>
+                  {last.exam.format === 'oge' ? 'ОГЭ' : last.exam.format === 'ege' ? 'ЕГЭ' : 'ПРОБНИК'}
+                </span>
+                <h2>{name}</h2>
+              </div>
+              <div className="sr-subject-score">
+                <strong>{score(lastScore)}</strong>
+                {delta != null && (
+                  <small>
+                    {delta >= 0 ? '+' : ''}
+                    {delta} к прошлому
+                  </small>
+                )}
+              </div>
+            </div>
+            {list.length > 1 && (
+              <div className="sr-bars" role="img" aria-label={`Динамика: ${name}`}>
+                {list.map(({ result, at }, index) => {
+                  const value = result.test_score ?? result.primary_score ?? 0;
+                  return (
+                    <div key={result.id}>
+                      <span>{shortMonth(at)}</span>
+                      <i
+                        className={index === list.length - 1 ? 'is-last' : ''}
+                        style={{ height: `${Math.max(8, Math.round((value / peak) * 80))}px` }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="sr-rows">
+              {list
+                .slice()
+                .reverse()
+                .map(({ result, exam, at }) => (
+                  <Link key={result.id} to={`/my-results/${result.id}`} className="sr-row">
+                    <span>
+                      <b>{examTitle(exam)}</b>
+                      <small>
+                        {shortDay(at)} · первичный {score(result.primary_score)}
+                      </small>
+                    </span>
+                    <strong>{score(result.test_score ?? result.primary_score)}</strong>
+                    <ChevronRight size={18} />
+                  </Link>
+                ))}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

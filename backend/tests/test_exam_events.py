@@ -389,3 +389,20 @@ def test_invalid_event_creation_is_atomic(client, engine, invalid):
     with transaction(engine) as session:
         assert session.scalar(select(func.count()).select_from(ExamEvent)) == 0
         assert session.scalar(select(func.count()).select_from(Exam)) == 0
+
+
+def test_draft_event_saves_partial_data_and_publishes_later(client):
+    draft = {"title": "Черновик", "draft": True, "subjects": [{"format": "ege", "subject": "Физика"}]}
+    created = client.post("/api/exam-events", json=draft)
+    assert created.status_code == 201, created.text
+    exams = client.get("/api/exams").json()
+    assert [(e["title"], e["is_active"]) for e in exams] == [("Черновик", False)]
+
+    incomplete = {**draft, "draft": False}
+    assert client.post("/api/exam-events", json=incomplete).status_code == 422
+
+    full = {**payload(), "title": "Черновик"}
+    full["subjects"] = [{"id": created.json()["exam_ids"][0], "format": "ege", "subject": "Физика"}]
+    published = client.put(f"/api/exam-events/{created.json()['id']}", json=full)
+    assert published.status_code == 200, published.text
+    assert client.get("/api/exams").json()[0]["is_active"] is True

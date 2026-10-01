@@ -1,7 +1,6 @@
 import { createContext, useContext, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
-  BookOpen,
   CalendarDays,
   Users,
   LayoutDashboard,
@@ -20,6 +19,13 @@ export const roleNames = {
   teacher: 'Учитель',
   student: 'Ученик',
 };
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join('');
 const SectionTitleContext = createContext<string | null>(null);
 export const useSectionTitle = () => useContext(SectionTitleContext);
 const TopbarSlotContext = createContext<HTMLElement | null>(null);
@@ -35,8 +41,8 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
   const nav =
     session.role === 'student'
       ? [
-          { to: '/available', title: 'Главная', icon: CalendarDays },
-          { to: '/my-results', title: 'Мои результаты', icon: BarChart3 },
+          { to: '/available', title: 'Пробники', icon: CalendarDays },
+          { to: '/my-results', title: 'Результаты', icon: BarChart3 },
         ]
       : session.role === 'teacher'
         ? [
@@ -64,19 +70,33 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
   return (
     <SectionTitleContext.Provider value={section?.title ?? null}>
       <TopbarSlotContext.Provider value={topbarSlot}>
-        <div className={`app-shell role-${session.role}`}>
+        <div
+          className={`app-shell role-${session.role} ${
+            staff && (pathname === '/' || pathname === '/exams' || pathname === '/exams/new' || pathname.startsWith('/exam-events/'))
+              ? 'admin-bare'
+              : ''
+          }`}
+        >
           <aside className="sidebar">
             <NavLink to="/" className="brand">
-              <span className="brand-mark">
-                <BookOpen size={24} />
-              </span>
+              <span className="brand-mark">Г</span>
               <span>
-                Пробник<small>Учебный кабинет</small>
+                Гарри
+                <small>
+                  {session.role === 'student'
+                    ? 'Подготовка к ОГЭ и ЕГЭ'
+                    : session.role === 'teacher'
+                      ? 'Кабинет учителя'
+                      : 'Администрирование'}
+                </small>
               </span>
             </NavLink>
             <div className="mobile-account">
-              <span className="avatar">{session.name.slice(0, 1).toUpperCase()}</span>
-              <span className="mobile-account-name">{session.name}</span>
+              <span className="avatar">{initials(session.name)}</span>
+              <span className="mobile-account-name">
+                {session.name}
+                <small>{roleNames[session.role]}</small>
+              </span>
               <Button variant="ghost" aria-label="Выйти" title="Выйти" onClick={logout}>
                 <LogOut size={18} />
               </Button>
@@ -127,7 +147,7 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
               )}
               <div className="account">
                 <span className="role-pill">{roleNames[session.role]}</span>
-                <span className="avatar">{session.name.slice(0, 1).toUpperCase()}</span>
+                <span className="avatar">{initials(session.name)}</span>
                 <span className="account-name">{session.name}</span>
                 <Button variant="ghost" aria-label="Выйти" title="Выйти" onClick={logout}>
                   <LogOut size={18} />

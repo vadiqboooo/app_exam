@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { BookOpen, ArrowRight, Check, GraduationCap } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Briefcase, ChevronRight, GraduationCap } from 'lucide-react';
 import { api, saveSession, setApiToken } from '../api/client';
 import type { Role, Session } from '../types';
 import { useAction } from '../hooks/useAction';
@@ -7,7 +7,28 @@ import { Button } from '../components/Button';
 import { ErrorNotice } from '../components/ErrorNotice';
 import { roleNames } from '../layouts/AppLayout';
 
+type Door = 'choose' | 'student' | 'staff';
+
+const staffRoles: { role: Role; title: string; text: string }[] = [
+  { role: 'teacher', title: 'Учитель', text: 'Свои группы, проверка работ и баллы учеников' },
+  { role: 'responsible', title: 'Ответственный', text: 'Пробники, запись, публикация результатов' },
+  { role: 'admin', title: 'Администратор', text: 'Всё выше + импорт CRM, предметы, доступы' },
+];
+
+function Brand({ suffix }: { suffix?: string }) {
+  return (
+    <div className="lg-brand">
+      <span className="lg-brand-mark">Г</span>
+      <span>
+        Гарри
+        {suffix ? <em> · {suffix}</em> : <small>Подготовка к ОГЭ и ЕГЭ</small>}
+      </span>
+    </div>
+  );
+}
+
 export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
+  const [door, setDoor] = useState<Door>('choose');
   const [role, setRole] = useState<Role>('student');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -15,6 +36,11 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
   const [name, setName] = useState('');
   const [key, setKey] = useState('');
   const { busy, error, run, clearError } = useAction();
+  function open(next: Door) {
+    clearError();
+    setDoor(next);
+    setRole(next === 'student' ? 'student' : 'teacher');
+  }
   function submit(e: FormEvent) {
     e.preventDefault();
     void run(async () => {
@@ -41,160 +67,201 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
       onLogin(session);
     });
   }
-  return (
-    <div className="login-page">
-      <section className="login-story">
-        <div className="brand">
-          <span className="brand-mark">
-            <BookOpen size={25} />
-          </span>
-          <span>
-            Пробник<small>Учебный кабинет</small>
-          </span>
-        </div>
-        <div className="login-intro">
-          <span className="eyebrow">СПОКОЙНО К ВАЖНОМУ</span>
-          <h1>
-            Каждый пробник —<br />
-            шаг к уверенности.
-          </h1>
-          <p>Записывайтесь на экзамены, следите за результатами и понимайте, что уже получается.</p>
-          <div className="login-illustration">
-            <span className="illustration-icon">
-              <GraduationCap size={44} strokeWidth={1.5} />
-            </span>
-            <div>
-              <span className="eyebrow">ВАШ ПУТЬ К РЕЗУЛЬТАТУ</span>
-              <div className="journey">
-                <span>
-                  <Check size={15} />
-                  Практика
+
+  if (door === 'choose')
+    return (
+      <div className="lg-page">
+        <section className="lg-side lg-side-purple">
+          <Brand />
+          <div className="lg-pitch">
+            <span className="lg-eyebrow">ПРОБНЫЕ ЭКЗАМЕНЫ ОГЭ И ЕГЭ</span>
+            <h1>Пробник как настоящий экзамен. Результат — с разбором.</h1>
+          </div>
+          <span />
+        </section>
+        <section className="lg-main">
+          <div className="lg-panel lg-panel-wide">
+            <div className="lg-title">
+              <h2>Войти в кабинет</h2>
+              <p>Кто вы?</p>
+            </div>
+            <div className="lg-doors">
+              <button type="button" className="lg-door" onClick={() => open('student')}>
+                <span className="lg-door-icon">
+                  <GraduationCap size={28} strokeWidth={1.8} />
                 </span>
-                <i />
-                <span>
-                  <Check size={15} />
-                  Обратная связь
+                <span className="lg-door-text">
+                  <strong>Я ученик</strong>
+                  <span>Записаться на пробник и смотреть результаты</span>
                 </span>
-                <i />
-                <span className="journey-last">Прогресс</span>
-              </div>
+                <ArrowRight size={22} />
+              </button>
+              <button type="button" className="lg-door" onClick={() => open('staff')}>
+                <span className="lg-door-icon lg-door-icon-slate">
+                  <Briefcase size={28} strokeWidth={1.8} />
+                </span>
+                <span className="lg-door-text">
+                  <strong>Я сотрудник</strong>
+                  <span>Явка, проверка работ и баллы учеников</span>
+                </span>
+                <ArrowRight size={22} />
+              </button>
             </div>
           </div>
-        </div>
-        <p className="login-footnote">Всё для подготовки — в одном кабинете.</p>
-      </section>
-      <section className="login-form-area">
-        <div className="login-form-card">
-          <span className="eyebrow">РАДЫ ВАС ВИДЕТЬ</span>
-          <h2>Войти в кабинет</h2>
-          <p className="muted">Выберите, как вы будете работать с сервисом.</p>
-          <div className="role-tabs" role="group" aria-label="Роль">
-            {(['student', 'teacher', 'admin'] as Role[]).map((r) => (
-              <button
-                type="button"
-                key={r}
-                className={role === r || (r === 'admin' && role === 'responsible') ? 'active' : ''}
-                disabled={busy}
-                onClick={() => {
-                  setRole(r);
-                  clearError();
-                }}
-              >
-                {r === 'admin' ? 'Сотрудник' : roleNames[r]}
-              </button>
-            ))}
+        </section>
+      </div>
+    );
+
+  const student = door === 'student';
+  return (
+    <div className="lg-page">
+      {student ? (
+        <section className="lg-side lg-side-purple">
+          <Brand />
+          <div className="lg-pitch">
+            <span className="lg-eyebrow">КАБИНЕТ УЧЕНИКА</span>
+            <h1>Записывайтесь на пробники и смотрите результаты с разбором.</h1>
           </div>
-          <form onSubmit={submit} className="stack">
-            <ErrorNotice message={error} />
-            {role === 'student' ? (
-              <>
-                <label>
-                  Фамилия
-                  <input
-                    autoComplete="family-name"
-                    placeholder="Иванов"
-                    required
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                  />
-                </label>
-                <label>
-                  Имя
-                  <input
-                    autoComplete="given-name"
-                    placeholder="Алексей"
-                    required
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                  />
-                </label>
-              </>
-            ) : role === 'teacher' ? (
-              <>
-                <label>
-                  Имя
-                  <input
-                    autoComplete="given-name"
-                    placeholder="Екатерина"
-                    required
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                  />
-                </label>
-                <label>
-                  Отчество
-                  <input
-                    autoComplete="additional-name"
-                    placeholder="Сергеевна"
-                    required
-                    value={middleName}
-                    onChange={(e) => setMiddleName(e.target.value)}
-                  />
-                </label>
-              </>
-            ) : (
-              <>
-                <label>
-                  Роль сотрудника
-                  <select value={role} onChange={(e) => setRole(e.target.value as Role)}>
-                    <option value="admin">Администратор</option>
-                    <option value="responsible">Ответственный</option>
-                  </select>
-                </label>
-                <label>
-                  Ваше имя
-                  <input
-                    placeholder="Как к вам обращаться"
-                    autoComplete="name"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                  />
-                </label>
-                <label>
-                  Ключ доступа
-                  <input
-                    type="password"
-                    autoComplete="current-password"
-                    placeholder="Ключ от администратора"
-                    required
-                    value={key}
-                    onChange={(e) => setKey(e.target.value)}
-                  />
-                </label>
-              </>
-            )}
-            <Button type="submit" disabled={busy} icon={<ArrowRight size={18} />} className="login-submit">
-              {busy ? 'Входим…' : 'Войти'}
-            </Button>
-          </form>
-          <p className="login-help">
+          <span />
+        </section>
+      ) : (
+        <section className="lg-side lg-side-dark">
+          <Brand suffix="для сотрудников" />
+          <div className="lg-pitch">
+            <h1 className="lg-h1-small">Один вход — кабинет по вашей роли</h1>
+            <div className="lg-roles">
+              {staffRoles.map((item) => (
+                <div key={item.role}>
+                  <span className="lg-role-tag">{item.title}</span>
+                  <span>{item.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <p className="lg-side-note">Роль задаёт администратор.</p>
+        </section>
+      )}
+      <section className="lg-main">
+        <form onSubmit={submit} className="lg-panel">
+          <button type="button" className="lg-back" onClick={() => open('choose')}>
+            <ArrowLeft size={16} />
+            {student ? 'Назад' : 'Я ученик'}
+          </button>
+          <div className="lg-title">
+            <h2>{student ? 'Вход для ученика' : 'Вход сотрудника'}</h2>
+            <p>
+              {student
+                ? 'Введите фамилию и имя, как они указаны в списке учеников.'
+                : 'Выберите роль и введите данные для входа.'}
+            </p>
+          </div>
+          {!student && (
+            <div className="lg-tabs" role="group" aria-label="Роль сотрудника">
+              {(['teacher', 'admin'] as Role[]).map((r) => (
+                <button
+                  type="button"
+                  key={r}
+                  aria-pressed={role === r || (r === 'admin' && role === 'responsible')}
+                  disabled={busy}
+                  onClick={() => {
+                    setRole(r);
+                    clearError();
+                  }}
+                >
+                  {r === 'admin' ? 'Администратор' : roleNames[r]}
+                </button>
+              ))}
+            </div>
+          )}
+          <ErrorNotice message={error} />
+          {role === 'student' ? (
+            <>
+              <label>
+                Фамилия
+                <input
+                  autoComplete="family-name"
+                  placeholder="Иванов"
+                  required
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                />
+              </label>
+              <label>
+                Имя
+                <input
+                  autoComplete="given-name"
+                  placeholder="Алексей"
+                  required
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                />
+              </label>
+            </>
+          ) : role === 'teacher' ? (
+            <>
+              <label>
+                Имя
+                <input
+                  autoComplete="given-name"
+                  placeholder="Екатерина"
+                  required
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                />
+              </label>
+              <label>
+                Отчество
+                <input
+                  autoComplete="additional-name"
+                  placeholder="Сергеевна"
+                  required
+                  value={middleName}
+                  onChange={(e) => setMiddleName(e.target.value)}
+                />
+              </label>
+            </>
+          ) : (
+            <>
+              <label>
+                Роль
+                <select value={role} onChange={(e) => setRole(e.target.value as Role)}>
+                  <option value="admin">Администратор</option>
+                  <option value="responsible">Ответственный</option>
+                </select>
+              </label>
+              <label>
+                Ваше имя
+                <input
+                  placeholder="Как к вам обращаться"
+                  autoComplete="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </label>
+              <label>
+                Ключ доступа
+                <input
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="Ключ от администратора"
+                  required
+                  value={key}
+                  onChange={(e) => setKey(e.target.value)}
+                />
+              </label>
+            </>
+          )}
+          <Button type="submit" disabled={busy} icon={<ChevronRight size={20} />} className="lg-submit">
+            {busy ? 'Входим…' : 'Войти'}
+          </Button>
+          <p className="lg-help">
             {role === 'student'
-              ? 'Тестовый вход по фамилии и имени из списка учеников. Если войти не получается, обратитесь к администратору.'
+              ? 'Если войти не получается, обратитесь к администратору.'
               : role === 'teacher'
                 ? 'Введите имя и отчество так, как они указаны в названии группы в CRM.'
-                : 'Сотрудники используют общий ключ доступа. Выбранная роль определяет интерфейс кабинета.'}
+                : 'Ключ доступа выдаёт администратор. Выбранная роль определяет интерфейс кабинета.'}
           </p>
-        </div>
+        </form>
       </section>
     </div>
   );

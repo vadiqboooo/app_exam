@@ -11,7 +11,7 @@ class SchoolCreate(Schema):
     id: int | None = Field(default=None, gt=0)
     name: NonEmpty
     address: str | None = None
-    slots: list["SlotCreate"] = Field(min_length=1)
+    slots: list["SlotCreate"] = Field(default_factory=list)
 
 
 class SlotCreate(Schema):
@@ -36,8 +36,9 @@ class SubjectCreate(Schema):
 
 class EventCreate(Schema):
     title: NonEmpty
-    schools: list[SchoolCreate] = Field(min_length=1)
+    schools: list[SchoolCreate] = Field(default_factory=list)
     subjects: list[SubjectCreate] = Field(min_length=1)
+    draft: bool = False
     registration_open_at: datetime | None = None
     registration_close_at: datetime | None = None
 
@@ -68,7 +69,12 @@ class EventCreate(Schema):
             and self.registration_close_at <= self.registration_open_at
         ):
             raise ValueError("Конец регистрации должен быть позже начала")
-        last_start = max(slot.starts_at for school in self.schools for slot in school.slots)
+        starts = [slot.starts_at for school in self.schools for slot in school.slots]
+        if self.draft:
+            return self
+        if not self.schools or any(not school.slots for school in self.schools):
+            raise ValueError("Добавьте хотя бы одну школу и время для каждой школы")
+        last_start = max(starts)
         if self.registration_open_at and self.registration_open_at >= last_start:
             raise ValueError("Регистрация должна открыться до проведения пробника")
         return self

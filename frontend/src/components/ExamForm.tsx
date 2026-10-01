@@ -62,7 +62,7 @@ const initialSchools = (exams?: Exam[]): SchoolDraft[] => {
     });
     schools.set(slot.school_id, school);
   }
-  return [...schools.values()];
+  return schools.size ? [...schools.values()] : [newSchool()];
 };
 
 export function ExamForm({
@@ -75,6 +75,7 @@ export function ExamForm({
   exams?: Exam[];
 }) {
   const editing = !!exams?.length;
+  const wasDraft = editing && exams.every((exam) => !exam.is_active);
   const [subjects, setSubjects] = useState<Subject[]>(() => initialSubjects(exams));
   const [schools, setSchools] = useState<SchoolDraft[]>(() => initialSchools(exams));
   const [settings, setSettings] = useState<SubjectSetting[]>([]);
@@ -128,6 +129,7 @@ export function ExamForm({
       if (!subjects.length) throw new Error('Выберите хотя бы один предмет ЕГЭ или ОГЭ.');
       const payload: ExamEventCreate = {
         title: value('title'),
+        draft: false,
         registration_open_at: time('opens'),
         registration_close_at: time('closes'),
         schools: schools.map((school) => ({
@@ -354,7 +356,7 @@ export function ExamForm({
             Отмена
           </Button>
           <Button type="submit" disabled={busy}>
-            {busy ? 'Сохраняем…' : editing ? 'Сохранить изменения' : 'Создать пробник'}
+            {busy ? 'Сохраняем…' : wasDraft ? 'Опубликовать' : editing ? 'Сохранить изменения' : 'Создать пробник'}
           </Button>
         </div>
       </form>

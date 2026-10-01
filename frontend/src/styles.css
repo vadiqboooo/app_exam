@@ -1,6 +1,9 @@
 @import url('./styles/layout.css');
 @import url('./styles/components.css');
 @import url('./styles/pages.css');
+@import url('./styles/redesign.css');
+@import url('./styles/redesign-student.css');
+@import url('./styles/redesign-admin.css');
 
 :root {
   font-family:

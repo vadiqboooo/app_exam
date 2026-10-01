@@ -1,5 +1,7 @@
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
+import { loadSession } from '../../api/client';
+import { TeacherGroupResults } from '../../components/TeacherGroupResults';
 import { useWorkspace } from '../../layouts/Workspace';
 import { PageHeader } from '../../components/PageHeader';
 import { DataTable } from '../../components/DataTable';
@@ -18,6 +20,18 @@ export function GroupDetail() {
       s.is_active &&
       data.memberships.some((m) => m.student_id === s.id && m.group_id === group?.id && !m.ended_at),
   );
+  if (group && data.exams.length && loadSession()?.role === 'teacher')
+    return (
+      <TeacherGroupResults
+        key={group.id}
+        group={group}
+        students={students}
+        exams={data.exams}
+        participations={data.participations}
+        back={back}
+        onSaved={refresh}
+      />
+    );
   return (
     <div className="stack page-stack">
       <Link to={back} className="back-link">

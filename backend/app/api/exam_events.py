@@ -48,7 +48,17 @@ def _subject_structure(session, subject):
     return structure
 
 
+def _event_bounds(data: EventCreate):
+    dates = [_naive(slot.starts_at) for school in data.schools for slot in school.slots]
+    if dates:
+        return min(dates), max(dates)
+    fallback = _naive(data.registration_open_at) or utcnow()
+    return fallback, None
+
+
 def _validate_new_times(data: EventCreate, existing_slots: dict[int, ExamSlot] | None = None):
+    if data.draft:
+        return
     existing_slots = existing_slots or {}
     for school in data.schools:
         for slot in school.slots:
@@ -70,7 +80,7 @@ def create_event(data: EventCreate, session: WriteSession):
     ]
     session.add_all(schools)
     session.flush()
-    dates = [_naive(slot.starts_at) for school in data.schools for slot in school.slots]
+    starts_at, ends_at = _event_bounds(data)
     exam_ids = []
     for subject in data.subjects:
         exam = Exam(
@@ -79,8 +89,9 @@ def create_event(data: EventCreate, session: WriteSession):
             type="mock",
             format=subject.format,
             subject=subject.subject,
-            starts_at=min(dates),
-            ends_at=max(dates),
+            starts_at=starts_at,
+            ends_at=ends_at,
+            is_active=not data.draft,
             registration_open_at=_naive(data.registration_open_at),
             registration_close_at=_naive(data.registration_close_at),
             structure_data=_subject_structure(session, subject),
@@ -154,7 +165,7 @@ def update_event(event_id: int, data: EventCreate, session: WriteSession):
         raise ValueError("Нельзя удалить время, на которое уже записаны ученики")
 
     event.title = data.title
-    dates = [_naive(slot.starts_at) for school in data.schools for slot in school.slots]
+    starts_at, ends_at = _event_bounds(data)
     kept_exams = []
     for subject in data.subjects:
         exam = exam_by_id[subject.id] if subject.id is not None else Exam(event_id=event_id)
@@ -162,8 +173,9 @@ def update_event(event_id: int, data: EventCreate, session: WriteSession):
         exam.type = "mock"
         exam.format = subject.format
         exam.subject = subject.subject
-        exam.starts_at = min(dates)
-        exam.ends_at = max(dates)
+        exam.starts_at = starts_at
+        exam.ends_at = ends_at
+        exam.is_active = not data.draft
         exam.registration_open_at = _naive(data.registration_open_at)
         exam.registration_close_at = _naive(data.registration_close_at)
         if subject.id is None or subject.structure_data is not None:

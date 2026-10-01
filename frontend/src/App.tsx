@@ -7,6 +7,7 @@ import { StudentWorkspace } from './layouts/StudentWorkspace';
 import { Login } from './pages/Login';
 import { Dashboard } from './pages/admin/Dashboard';
 import { Exams } from './pages/admin/Exams';
+import { ExamNew } from './pages/admin/ExamNew';
 import { ExamDetail } from './pages/admin/ExamDetail';
 import { ExamEventDetail } from './pages/admin/ExamEventDetail';
 import { School } from './pages/admin/School';
@@ -16,6 +17,7 @@ import { Groups } from './pages/teacher/Groups';
 import { GroupDetail } from './pages/teacher/GroupDetail';
 import { AvailableExams } from './pages/student/AvailableExams';
 import { MyResults } from './pages/student/MyResults';
+import { ResultDetail } from './pages/student/ResultDetail';
 
 export default function App() {
   const [session, setSession] = useState(loadSession);
@@ -56,6 +58,7 @@ export default function App() {
             >
               <Route path="/available" element={<AvailableExams />} />
               <Route path="/my-results" element={<MyResults />} />
+              <Route path="/my-results/:id" element={<ResultDetail />} />
             </Route>
           ) : (
             <Route
@@ -69,6 +72,7 @@ export default function App() {
                 <>
                   <Route index element={<Dashboard />} />
                   <Route path="/exams" element={<Exams />} />
+                  <Route path="/exams/new" element={<ExamNew />} />
                   <Route path="/exams/:id" element={<ExamDetail />} />
                   <Route path="/exam-events/:id" element={<ExamEventDetail />} />
                   <Route path="/students/:id" element={<StudentDetail />} />

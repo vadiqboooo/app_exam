@@ -100,6 +100,7 @@ export interface ExamSlot {
 }
 export interface ExamEventCreate {
   title: string;
+  draft?: boolean;
   registration_open_at: string | null;
   registration_close_at: string | null;
   schools: {
