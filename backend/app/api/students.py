@@ -1,10 +1,19 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
-from app.api.dependencies import Limit, Offset, ReadSession, get_or_404, teacher_id
+from app.api.dependencies import (
+    Limit,
+    Offset,
+    ReadSession,
+    WriteSession,
+    get_or_404,
+    require_admin,
+    teacher_id,
+)
 from app.importers.record import normalize_name
 from app.models import Membership, Student, StudyGroup
 from app.schemas.student import StudentRead
+from app.services.access_code import reset_code, unlock
 
 router = APIRouter(prefix="/students", tags=["students"])
 
@@ -71,3 +80,25 @@ def memberships(
     if current_teacher_id is not None:
         query = query.join(StudyGroup).where(StudyGroup.teacher_id == current_teacher_id)
     return session.scalars(query.order_by(Membership.id).limit(limit).offset(offset)).all()
+
+
+@router.post(
+    "/{student_id}/reset-code",
+    response_model=StudentRead,
+    dependencies=[Depends(require_admin)],
+)
+def reset_student_code(student_id: int, session: WriteSession):
+    student = get_or_404(session, Student, student_id)
+    reset_code(student)
+    return student
+
+
+@router.post(
+    "/{student_id}/unlock",
+    response_model=StudentRead,
+    dependencies=[Depends(require_admin)],
+)
+def unlock_student(student_id: int, session: WriteSession):
+    student = get_or_404(session, Student, student_id)
+    unlock(student)
+    return student

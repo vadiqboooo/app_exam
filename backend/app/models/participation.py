@@ -30,3 +30,5 @@ class Participation(Base):
     result_data: Mapped[dict | None] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
     published_at: Mapped[datetime | None]
+    # Name snapshot of whoever last entered or changed the scores.
+    checked_by: Mapped[str | None]

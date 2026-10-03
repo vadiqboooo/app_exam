@@ -1,3 +1,5 @@
+from datetime import UTC
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
@@ -5,6 +7,7 @@ from app.api.dependencies import Limit, Offset, ReadSession, WriteSession, requi
 from app.importers.record import normalize_name
 from app.models import Staff, StudyGroup
 from app.schemas.teacher_portal import TeacherWrite
+from app.services.access_code import reset_code, unlock
 
 router = APIRouter(
     prefix="/teachers",
@@ -18,6 +21,10 @@ def _parts(name: str) -> tuple[str, str]:
     return parts[0], parts[1] if len(parts) > 1 else ""
 
 
+def _utc(value):
+    return value.replace(tzinfo=UTC) if value is not None else None
+
+
 def _read(teacher: Staff, group_ids: list[int]) -> dict:
     first_name, middle_name = _parts(teacher.name)
     return {
@@ -26,6 +33,9 @@ def _read(teacher: Staff, group_ids: list[int]) -> dict:
         "first_name": first_name,
         "middle_name": middle_name,
         "group_ids": group_ids,
+        "has_code": teacher.has_code,
+        "locked_until": _utc(teacher.locked_until),
+        "last_login_at": _utc(teacher.last_login_at),
     }
 
 
@@ -130,3 +140,32 @@ def delete_teacher(teacher_id: int, session: WriteSession):
     session.delete(teacher)
     session.flush()
     return {"ok": True}
+
+
+def _teacher(session, teacher_id: int) -> Staff:
+    teacher = session.get(Staff, teacher_id)
+    if teacher is None or teacher.role != "teacher":
+        raise HTTPException(404, "Учитель не найден")
+    return teacher
+
+
+def _group_ids(session, teacher: Staff) -> list[int]:
+    return list(
+        session.scalars(
+            select(StudyGroup.id).where(StudyGroup.teacher_id == teacher.id).order_by(StudyGroup.id)
+        )
+    )
+
+
+@router.post("/{teacher_id}/reset-code")
+def reset_teacher_code(teacher_id: int, session: WriteSession):
+    teacher = _teacher(session, teacher_id)
+    reset_code(teacher)
+    return _read(teacher, _group_ids(session, teacher))
+
+
+@router.post("/{teacher_id}/unlock")
+def unlock_teacher(teacher_id: int, session: WriteSession):
+    teacher = _teacher(session, teacher_id)
+    unlock(teacher)
+    return _read(teacher, _group_ids(session, teacher))

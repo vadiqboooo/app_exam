@@ -1,10 +1,11 @@
 from sqlalchemy import CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.models.access import AccessCodeMixin
 from app.models.base import Base
 
 
-class Student(Base):
+class Student(AccessCodeMixin, Base):
     __tablename__ = "students"
     __table_args__ = (CheckConstraint("grade BETWEEN 1 AND 11", name="grade_range"),)
 
@@ -14,4 +15,3 @@ class Student(Base):
     name_key: Mapped[str] = mapped_column(index=True)
     grade: Mapped[int | None]
     is_active: Mapped[bool] = mapped_column(default=True)
-    access_code_hash: Mapped[str | None]

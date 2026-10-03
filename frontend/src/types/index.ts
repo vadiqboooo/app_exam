@@ -15,6 +15,9 @@ export interface Student {
   is_active: boolean;
   external_id: string | null;
   name_key: string;
+  has_code?: boolean;
+  locked_until?: string | null;
+  last_login_at?: string | null;
 }
 export interface Group {
   id: number;
@@ -33,6 +36,9 @@ export interface Teacher {
   first_name: string;
   middle_name: string;
   group_ids: number[];
+  has_code: boolean;
+  locked_until: string | null;
+  last_login_at: string | null;
 }
 export interface TeacherWrite {
   first_name: string;
@@ -150,6 +156,7 @@ export interface Participation extends ResultWrite {
   status: Status;
   updated_at: string;
   published_at: string | null;
+  checked_by: string | null;
 }
 export type StudentParticipation = Pick<Participation, 'id' | 'exam_id' | 'slot_id' | 'status'>;
 export interface Workspace {
@@ -172,6 +179,54 @@ export interface ImportPreview {
   applied: boolean;
   report: Record<ChangeKey | 'total' | 'memberships_added' | 'memberships_closed', number>;
   changes: Partial<Record<ChangeKey, { full_name: string; before?: string[]; after?: string[] }[]>>;
+}
+export interface TeachersStep {
+  total: number;
+  new: number;
+  unchanged: number;
+  rows: { name: string; subjects: string; groups: number; status: 'new' | 'unchanged' }[];
+}
+export interface GroupsStep {
+  total: number;
+  new: number;
+  with_teacher: number;
+  without_teacher: number;
+  rows: { name: string; subject: string; teacher: string; status: 'new' | 'unchanged' | 'no_teacher' }[];
+}
+export type StudentStatus =
+  'new' | 'returned' | 'left' | 'changed_groups' | 'updated' | 'unchanged' | 'unknown_group';
+export interface StudentsStep {
+  total: number;
+  new: number;
+  returned: number;
+  changed_groups: number;
+  left: number;
+  unknown_group: number;
+  unchanged: number;
+  rows: { name: string; grade: number | null; groups: string; status: StudentStatus }[];
+}
+export interface LegacyStep {
+  title: string | null;
+  subjects: number;
+  works: number;
+  students: number;
+}
+export interface ImportRun {
+  confirmation: string;
+  applied: boolean;
+  warnings: { n: string; text: string }[];
+  report: {
+    teachers: { total: number; new: number } | null;
+    groups: { total: number; new: number; without_teacher: number } | null;
+    students: {
+      total: number;
+      new: number;
+      left: number;
+      changed_groups: number;
+      unknown_groups: number;
+    } | null;
+    legacy: { works: number; linked: number; unlinked: number; already: number; students: number } | null;
+  };
 }
 export interface ImportAnalysis {
   total: number;

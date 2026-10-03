@@ -6,6 +6,7 @@ from app.schemas.base import NonEmpty, Schema
 class StudentLogin(Schema):
     last_name: NonEmpty
     first_name: NonEmpty
+    code: str | None = None
 
 
 class StudentParticipation(Schema):

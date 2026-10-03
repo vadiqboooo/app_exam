@@ -992,3 +992,48 @@
     gap: 14px;
   }
 }
+
+/* ---------- personal 6-digit access code ---------- */
+.code-input {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+.code-input input {
+  width: 100%;
+  height: 56px;
+  box-sizing: border-box;
+  padding: 0;
+  text-align: center;
+  border: 1.5px solid #dcd9e6;
+  border-radius: 12px;
+  background: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  color: #292637;
+}
+.code-input input:focus {
+  outline: none;
+  border: 2px solid var(--purple);
+  background: #f0ebfc;
+}
+.lg-code-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.lg-who {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f0ebfc;
+  color: #3d3470;
+  font-size: 15px;
+  font-weight: 700;
+}
+.lg-hint {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #6a6679;
+}

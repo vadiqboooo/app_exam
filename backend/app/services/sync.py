@@ -23,6 +23,7 @@ class SyncReport:
     changed_groups: int = 0
     new_groups: int = 0
     new_teachers: int = 0
+    unknown_groups: int = 0
     memberships_added: int = 0
     memberships_closed: int = 0
     changes: dict = field(default_factory=lambda: defaultdict(list))
@@ -98,10 +99,12 @@ def _synchronize(
     records: list[StudentRecord],
     today: date,
     selected_grades: set[int | None] | None,
+    known_groups: set[str] | None = None,
 ) -> SyncReport:
     report = SyncReport(
         total=sum(selected_grades is None or r.grade in selected_grades for r in records)
     )
+    unknown_seen: set[str] = set()
     students = list(session.scalars(select(Student)))
     by_external = {s.external_id: s for s in students if s.external_id is not None}
     by_name = defaultdict(list)
@@ -161,6 +164,14 @@ def _synchronize(
             report.changes["new"].append({"full_name": record.full_name})
         desired = set()
         for name in record.groups if record.is_active else ():
+            if known_groups is not None and name not in known_groups and name not in groups:
+                if record.full_name not in unknown_seen:
+                    unknown_seen.add(record.full_name)
+                    report.unknown_groups += 1
+                report.changes["unknown_groups"].append(
+                    {"full_name": record.full_name, "after": [name]}
+                )
+                continue
             details = group_details(name)
             group = groups.get(name)
             teacher = None

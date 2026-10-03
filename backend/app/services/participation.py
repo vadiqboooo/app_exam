@@ -98,7 +98,9 @@ def change_status(item: Participation, target: str) -> None:
         item.published_at = item.updated_at
 
 
-def save_result(session: Session, item: Participation, data: ResultWrite) -> None:
+def save_result(
+    session: Session, item: Participation, data: ResultWrite, checker: str | None = None
+) -> None:
     if item.status not in {"submitted", "checked"}:
         raise ValueError("Результат можно менять после сдачи работы и до публикации")
     exam = session.get(Exam, item.exam_id)
@@ -117,18 +119,30 @@ def save_result(session: Session, item: Participation, data: ResultWrite) -> Non
             raise ValueError("Балл за задание превышает максимум")
         if not isclose(sum(t.score for t in tasks), data.primary_score, abs_tol=1e-8):
             raise ValueError("Первичный балл не совпадает с суммой баллов за задания")
-    item.primary_score = data.primary_score
     automatic_score = (
         calculate_final_score(exam.format, data.primary_score, structure)
         if structure is not None and exam.format in {"ege", "oge"}
         else None
     )
-    item.test_score = automatic_score if automatic_score is not None else data.test_score
-    item.result_data = data.result_data.model_dump() if data.result_data is not None else None
+    test_score = automatic_score if automatic_score is not None else data.test_score
+    result_data = data.result_data.model_dump() if data.result_data is not None else None
+    changed = (
+        item.primary_score != data.primary_score
+        or item.test_score != test_score
+        or item.result_data != result_data
+    )
+    item.primary_score = data.primary_score
+    item.test_score = test_score
+    item.result_data = result_data
+    # Publishing re-sends saved scores: it must not take over the original checker.
+    if checker and (changed or item.checked_by is None):
+        item.checked_by = checker
     item.updated_at = utcnow()
 
 
-def quick_save_result(session: Session, data: QuickResultWrite) -> Participation:
+def quick_save_result(
+    session: Session, data: QuickResultWrite, checker: str | None = None
+) -> Participation:
     """Create or update a checked work from the compact result-entry screen.
 
     Registrations remain the source of truth, but an operator does not have to click
@@ -190,7 +204,7 @@ def quick_save_result(session: Session, data: QuickResultWrite) -> Participation
         test_score=data.test_score,
         result_data=data.result_data,
     )
-    save_result(session, item, result)
+    save_result(session, item, result, checker)
     if item.status == "submitted":
         change_status(item, "checked")
     session.flush()

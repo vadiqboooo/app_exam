@@ -35,7 +35,7 @@ def import_rows(client, rows):
 def teacher_headers(client, first_name, middle_name):
     response = client.post(
         "/api/teacher/login",
-        json={"first_name": first_name, "middle_name": middle_name},
+        json={"first_name": first_name, "middle_name": middle_name, "code": "123456"},
     )
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['token']}"}

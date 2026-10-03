@@ -22,7 +22,8 @@ def seed(engine):
 
 def login(client):
     response = client.post(
-        "/api/student/login", json={"last_name": "ИВАНОВ", "first_name": "Алексей"}
+        "/api/student/login",
+        json={"last_name": "ИВАНОВ", "first_name": "Алексей", "code": "123456"},
     )
     assert response.status_code == 200
     return {"Authorization": "Bearer " + response.json()["token"]}

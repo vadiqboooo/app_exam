@@ -47,12 +47,12 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
       : session.role === 'teacher'
         ? [
             { to: '/groups', title: 'Мои группы', icon: Users },
-            { to: '/results', title: 'Экзамены и результаты', icon: BarChart3 },
+            { to: '/results', title: 'Результаты', icon: BarChart3 },
           ]
         : [
             { to: '/', title: 'Главная', icon: LayoutDashboard },
             { to: '/exams', title: 'Пробники', icon: CalendarDays },
-            { to: '/results', title: 'Экзамены и результаты', icon: BarChart3 },
+            { to: '/results', title: 'Результаты', icon: BarChart3 },
             { to: '/school', title: 'Школа', icon: School },
           ];
   const staff = session.role === 'admin' || session.role === 'responsible';
@@ -72,7 +72,15 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
       <TopbarSlotContext.Provider value={topbarSlot}>
         <div
           className={`app-shell role-${session.role} ${
-            staff && (pathname === '/' || pathname === '/exams' || pathname === '/exams/new' || pathname.startsWith('/exam-events/'))
+            (session.role === 'teacher' && (pathname === '/results' || pathname === '/results/new')) ||
+            (staff &&
+              (pathname === '/' ||
+                pathname === '/exams' ||
+                pathname === '/exams/new' ||
+                pathname === '/results' ||
+                pathname === '/results/new' ||
+                pathname.startsWith('/school') ||
+                pathname.startsWith('/exam-events/')))
               ? 'admin-bare'
               : ''
           }`}

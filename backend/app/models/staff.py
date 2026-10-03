@@ -1,10 +1,11 @@
 from sqlalchemy import CheckConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.models.access import AccessCodeMixin
 from app.models.base import Base
 
 
-class Staff(Base):
+class Staff(AccessCodeMixin, Base):
     __tablename__ = "staff"
     __table_args__ = (CheckConstraint("role IN ('admin', 'responsible', 'teacher')", name="role"),)
 

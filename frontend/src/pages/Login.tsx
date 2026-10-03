@@ -1,13 +1,16 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowLeft, ArrowRight, Briefcase, ChevronRight, GraduationCap } from 'lucide-react';
 import { api, saveSession, setApiToken } from '../api/client';
 import type { Role, Session } from '../types';
 import { useAction } from '../hooks/useAction';
 import { Button } from '../components/Button';
 import { ErrorNotice } from '../components/ErrorNotice';
+import { CodeInput } from '../components/CodeInput';
 import { roleNames } from '../layouts/AppLayout';
 
 type Door = 'choose' | 'student' | 'staff';
+// name: имя; code: вход с личным кодом; create: первый вход, придумывание кода.
+type Step = 'name' | 'code' | 'create';
 
 const staffRoles: { role: Role; title: string; text: string }[] = [
   { role: 'teacher', title: 'Учитель', text: 'Свои группы, проверка работ и баллы учеников' },
@@ -35,9 +38,24 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
   const [middleName, setMiddleName] = useState('');
   const [name, setName] = useState('');
   const [key, setKey] = useState('');
+  const [step, setStep] = useState<Step>('name');
+  const [code, setCode] = useState('');
+  const [repeat, setRepeat] = useState('');
   const { busy, error, run, clearError } = useAction();
-  function open(next: Door) {
+  useEffect(() => {
+    if (error) {
+      setCode('');
+      setRepeat('');
+    }
+  }, [error]);
+  function backToName() {
     clearError();
+    setStep('name');
+    setCode('');
+    setRepeat('');
+  }
+  function open(next: Door) {
+    backToName();
     setDoor(next);
     setRole(next === 'student' ? 'student' : 'teacher');
   }
@@ -45,19 +63,35 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
     e.preventDefault();
     void run(async () => {
       let session: Session;
-      if (role === 'student') {
+      if (role === 'student' || role === 'teacher') {
+        if (step === 'create') {
+          if (code.length !== 6) throw new Error('Код состоит из 6 цифр');
+          if (code !== repeat) throw new Error('Коды не совпадают. Введите их ещё раз');
+        } else if (step === 'code' && code.length !== 6) throw new Error('Введите все 6 цифр кода');
         setApiToken('');
-        const result = await api.student.login(lastName, firstName);
-        session = { role, name: result.student.full_name, token: result.token, studentId: result.student.id };
-      } else if (role === 'teacher') {
-        setApiToken('');
-        const result = await api.teacher.login(firstName, middleName);
-        session = {
-          role,
-          name: result.teacher.name,
-          token: result.token,
-          teacherId: result.teacher.id,
-        };
+        const sendCode = step === 'name' ? undefined : code;
+        const result =
+          role === 'student'
+            ? await api.student.login(lastName, firstName, sendCode)
+            : await api.teacher.login(firstName, middleName, sendCode);
+        if (result.status !== 'ok') {
+          setStep(result.status === 'code_new' ? 'create' : 'code');
+          return;
+        }
+        session =
+          'student' in result
+            ? {
+                role: 'student',
+                name: result.student.full_name,
+                token: result.token,
+                studentId: result.student.id,
+              }
+            : {
+                role: 'teacher',
+                name: result.teacher.name,
+                token: result.token,
+                teacherId: result.teacher.id,
+              };
       } else {
         setApiToken(key.trim());
         await api.session();
@@ -143,19 +177,35 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
       )}
       <section className="lg-main">
         <form onSubmit={submit} className="lg-panel">
-          <button type="button" className="lg-back" onClick={() => open('choose')}>
+          <button
+            type="button"
+            className="lg-back"
+            onClick={() => (step === 'name' ? open('choose') : backToName())}
+          >
             <ArrowLeft size={16} />
-            {student ? 'Назад' : 'Я ученик'}
+            {step !== 'name' ? 'Изменить имя' : student ? 'Назад' : 'Я ученик'}
           </button>
           <div className="lg-title">
-            <h2>{student ? 'Вход для ученика' : 'Вход сотрудника'}</h2>
+            <h2>
+              {step === 'create'
+                ? 'Придумайте код'
+                : step === 'code'
+                  ? 'Введите код'
+                  : student
+                    ? 'Вход для ученика'
+                    : 'Вход сотрудника'}
+            </h2>
             <p>
-              {student
-                ? 'Введите фамилию и имя, как они указаны в списке учеников.'
-                : 'Выберите роль и введите данные для входа.'}
+              {step === 'create'
+                ? 'Это ваш первый вход. Придумайте личный код из 6 цифр — дальше будете входить с ним.'
+                : step === 'code'
+                  ? 'Введите личный код из 6 цифр.'
+                  : student
+                    ? 'Введите фамилию и имя, как они указаны в списке учеников.'
+                    : 'Выберите роль и введите данные для входа.'}
             </p>
           </div>
-          {!student && (
+          {!student && step === 'name' && (
             <div className="lg-tabs" role="group" aria-label="Роль сотрудника">
               {(['teacher', 'admin'] as Role[]).map((r) => (
                 <button
@@ -174,7 +224,28 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
             </div>
           )}
           <ErrorNotice message={error} />
-          {role === 'student' ? (
+          {step !== 'name' && (role === 'student' || role === 'teacher') ? (
+            <>
+              <div className="lg-who">
+                {role === 'student' ? `${lastName} ${firstName}` : `${firstName} ${middleName}`}
+              </div>
+              <div className="lg-code-field">
+                <span>{step === 'create' ? 'Новый код' : 'Код доступа'}</span>
+                <CodeInput value={code} onChange={setCode} autoFocus disabled={busy} />
+              </div>
+              {step === 'create' && (
+                <div className="lg-code-field">
+                  <span>Повторите код</span>
+                  <CodeInput value={repeat} onChange={setRepeat} label="Повтор кода" disabled={busy} />
+                </div>
+              )}
+              <p className="lg-hint">
+                {step === 'create'
+                  ? 'Код личный — не пересылайте его друзьям. Если забудете, администратор сбросит его.'
+                  : 'После 5 неверных попыток вход приостанавливается на 5 минут, затем на 30.'}
+              </p>
+            </>
+          ) : role === 'student' ? (
             <>
               <label>
                 Фамилия
@@ -252,14 +323,22 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
             </>
           )}
           <Button type="submit" disabled={busy} icon={<ChevronRight size={20} />} className="lg-submit">
-            {busy ? 'Входим…' : 'Войти'}
+            {busy
+              ? 'Входим…'
+              : step === 'create'
+                ? 'Сохранить код и войти'
+                : step === 'name' && (role === 'student' || role === 'teacher')
+                  ? 'Продолжить'
+                  : 'Войти'}
           </Button>
           <p className="lg-help">
-            {role === 'student'
-              ? 'Если войти не получается, обратитесь к администратору.'
-              : role === 'teacher'
-                ? 'Введите имя и отчество так, как они указаны в названии группы в CRM.'
-                : 'Ключ доступа выдаёт администратор. Выбранная роль определяет интерфейс кабинета.'}
+            {step === 'create'
+              ? 'Запомните код: он понадобится при каждом входе.'
+              : role === 'student'
+                ? 'Если войти не получается, обратитесь к администратору.'
+                : role === 'teacher'
+                  ? 'Введите имя и отчество так, как они указаны в названии группы в CRM.'
+                  : 'Ключ доступа выдаёт администратор. Выбранная роль определяет интерфейс кабинета.'}
           </p>
         </form>
       </section>

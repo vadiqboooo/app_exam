@@ -69,7 +69,12 @@ function ResultEditor({
   };
   const [values, setValues] = useState<TaskValue[]>(initial);
   const [commenting, setCommenting] = useState<Set<string>>(
-    () => new Set(initial().filter((value) => value.comment).map((value) => value.code)),
+    () =>
+      new Set(
+        initial()
+          .filter((value) => value.comment)
+          .map((value) => value.code),
+      ),
   );
   const [overall, setOverall] = useState(item?.result_data?.overall_comment ?? '');
   const [confirming, setConfirming] = useState(false);
@@ -190,7 +195,9 @@ function ResultEditor({
                     onChange={(event) =>
                       setValues((current) =>
                         current.map((candidate) =>
-                          candidate.code === value.code ? { ...candidate, comment: event.target.value } : candidate,
+                          candidate.code === value.code
+                            ? { ...candidate, comment: event.target.value }
+                            : candidate,
                         ),
                       )
                     }
@@ -370,7 +377,9 @@ export function TeacherGroupResults({
               <span className="teacher-group-format">{group.exam_format === 'ege' ? 'ЕГЭ' : 'ОГЭ'}</span>
             )}
           </h1>
-          <p>{[group.source_name, group.schedule, `${students.length} учеников`].filter(Boolean).join(' · ')}</p>
+          <p>
+            {[group.source_name, group.schedule, `${students.length} учеников`].filter(Boolean).join(' · ')}
+          </p>
         </div>
         {available.length > 0 && (
           <label className="tg-exam-select">
@@ -465,7 +474,11 @@ export function TeacherGroupResults({
                       {sub && <small>{sub}</small>}
                     </span>
                     <span>
-                      {item ? <StatusBadge status={item.status} /> : <span className="badge">Нет записи</span>}
+                      {item ? (
+                        <StatusBadge status={item.status} />
+                      ) : (
+                        <span className="badge">Нет записи</span>
+                      )}
                     </span>
                     <span className="tg-primary">
                       {item?.primary_score != null ? score(item.primary_score) : '—'}

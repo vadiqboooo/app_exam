@@ -61,6 +61,7 @@ class ParticipationRead(Schema):
     result_data: ResultData | None
     updated_at: datetime
     published_at: datetime | None
+    checked_by: str | None = None
 
     @field_validator("updated_at", "published_at")
     @classmethod

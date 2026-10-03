@@ -62,7 +62,10 @@ def create(client, engine):
 
 
 def login(client, surname="Иванов", name="Иван"):
-    response = client.post("/api/student/login", json={"last_name": surname, "first_name": name})
+    response = client.post(
+        "/api/student/login",
+        json={"last_name": surname, "first_name": name, "code": "123456"},
+    )
     assert response.status_code == 200
     return {"Authorization": "Bearer " + response.json()["token"]}
 
@@ -392,7 +395,11 @@ def test_invalid_event_creation_is_atomic(client, engine, invalid):
 
 
 def test_draft_event_saves_partial_data_and_publishes_later(client):
-    draft = {"title": "Черновик", "draft": True, "subjects": [{"format": "ege", "subject": "Физика"}]}
+    draft = {
+        "title": "Черновик",
+        "draft": True,
+        "subjects": [{"format": "ege", "subject": "Физика"}],
+    }
     created = client.post("/api/exam-events", json=draft)
     assert created.status_code == 201, created.text
     exams = client.get("/api/exams").json()

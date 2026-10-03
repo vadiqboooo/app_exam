@@ -4,8 +4,11 @@ import type {
   ExamEvent,
   ExamEventCreate,
   Group,
+  GroupsStep,
   ImportPreview,
   ImportAnalysis,
+  ImportRun,
+  LegacyStep,
   Membership,
   Participation,
   QuickResultWrite,
@@ -14,11 +17,18 @@ import type {
   Status,
   Student,
   StudentParticipation,
+  StudentsStep,
   SubjectSetting,
   SubjectSettingWrite,
   Teacher,
   TeacherWrite,
+  TeachersStep,
 } from '../types';
+
+export type CodeStep = { status: 'code_new' | 'code_required' };
+export type StudentLoginResult = CodeStep | { status: 'ok'; token: string; student: Student };
+export type TeacherLoginResult =
+  CodeStep | { status: 'ok'; token: string; teacher: { id: number; name: string } };
 
 let token = '';
 export function setApiToken(value: string) {
@@ -69,26 +79,41 @@ const importFile = <T>(path: string, file: File, grades?: (number | null)[], con
   return request<T>(`/imports/${path}`, { method: 'POST', body });
 };
 
+const importForm = <T>(path: string, parts: Record<string, File | string | undefined>) => {
+  const body = new FormData();
+  for (const [name, value] of Object.entries(parts)) if (value !== undefined) body.append(name, value);
+  return request<T>(`/imports/${path}`, { method: 'POST', body });
+};
+
 export const api = {
   session: () => request('/session'),
-  students: { list: () => all<Student>('/students') },
+  students: {
+    list: () => all<Student>('/students'),
+    resetCode: (id: number) => request<Student>(`/students/${id}/reset-code`, { method: 'POST' }),
+    unlock: (id: number) => request<Student>(`/students/${id}/unlock`, { method: 'POST' }),
+  },
   groups: { list: () => all<Group>('/groups') },
   teachers: {
     list: () => all<Teacher>('/teachers'),
     create: (data: TeacherWrite) => request<Teacher>('/teachers', json('POST', data)),
-    update: (id: number, data: TeacherWrite) =>
-      request<Teacher>(`/teachers/${id}`, json('PUT', data)),
+    update: (id: number, data: TeacherWrite) => request<Teacher>(`/teachers/${id}`, json('PUT', data)),
     delete: (id: number) => request<{ ok: boolean }>(`/teachers/${id}`, { method: 'DELETE' }),
+    resetCode: (id: number) => request<Teacher>(`/teachers/${id}/reset-code`, { method: 'POST' }),
+    unlock: (id: number) => request<Teacher>(`/teachers/${id}/unlock`, { method: 'POST' }),
   },
   subjects: {
     list: () => all<SubjectSetting>('/subjects'),
-    create: (data: SubjectSettingWrite) =>
-      request<SubjectSetting>('/subjects', json('POST', data)),
+    create: (data: SubjectSettingWrite) => request<SubjectSetting>('/subjects', json('POST', data)),
     update: (id: number, data: SubjectSettingWrite) =>
       request<SubjectSetting>(`/subjects/${id}`, json('PUT', data)),
     delete: (id: number) => request<{ ok: boolean }>(`/subjects/${id}`, { method: 'DELETE' }),
   },
-  memberships: { list: () => all<Membership>('/memberships') },
+  memberships: {
+    list: () => all<Membership>('/memberships'),
+    add: (student_id: number, group_id: number) =>
+      request<Membership>('/memberships', json('POST', { student_id, group_id })),
+    remove: (id: number) => request<Membership>(`/memberships/${id}`, { method: 'DELETE' }),
+  },
   exams: {
     list: () => all<Exam>('/exams'),
     create: (data: ExamCreate) => request<Exam>('/exams', json('POST', data)),
@@ -116,14 +141,20 @@ export const api = {
     delete: (id: number) => request<{ ok: boolean }>(`/exam-events/${id}`, { method: 'DELETE' }),
   },
   import: {
+    teachers: (file: File, groups?: File) => importForm<TeachersStep>('teachers/preview', { file, groups }),
+    groups: (file: File, teachers?: File) => importForm<GroupsStep>('groups/preview', { file, teachers }),
+    students: (file: File, groups?: File) => importForm<StudentsStep>('students/preview', { file, groups }),
+    legacy: (file: File) => importForm<LegacyStep>('legacy/analyze', { file }),
+    run: (files: { teachers?: File; groups?: File; students?: File; legacy?: File }, confirmation?: string) =>
+      importForm<ImportRun>(confirmation ? 'run/apply' : 'run/preview', { ...files, confirmation }),
     analyze: (file: File) => importFile<ImportAnalysis>('analyze', file),
     preview: (file: File, grades: (number | null)[]) => importFile<ImportPreview>('preview', file, grades),
     apply: (file: File, confirmation: string, grades: (number | null)[]) =>
       importFile<ImportPreview>('apply', file, grades, confirmation),
   },
   student: {
-    login: (last_name: string, first_name: string) =>
-      request<{ token: string; student: Student }>('/student/login', json('POST', { last_name, first_name })),
+    login: (last_name: string, first_name: string, code?: string) =>
+      request<StudentLoginResult>('/student/login', json('POST', { last_name, first_name, code })),
     me: () => request<Student>('/student/me'),
     exams: () => all<Exam>('/student/exams'),
     participations: () => all<StudentParticipation>('/student/participations'),
@@ -136,11 +167,8 @@ export const api = {
       request<StudentParticipation>(`/student/participations/${id}`, { method: 'DELETE' }),
   },
   teacher: {
-    login: (first_name: string, middle_name: string) =>
-      request<{ token: string; teacher: { id: number; name: string } }>(
-        '/teacher/login',
-        json('POST', { first_name, middle_name }),
-      ),
+    login: (first_name: string, middle_name: string, code?: string) =>
+      request<TeacherLoginResult>('/teacher/login', json('POST', { first_name, middle_name, code })),
   },
 };
 
@@ -164,8 +192,7 @@ export function loadSession(): Session | null {
       session &&
       (!['admin', 'responsible', 'teacher', 'student'].includes(session.role) ||
         !session.token ||
-        (session.role === 'teacher' &&
-          (!session.teacherId || !session.token.startsWith('teacher.'))))
+        (session.role === 'teacher' && (!session.teacherId || !session.token.startsWith('teacher.'))))
     )
       return null;
     setApiToken(session?.token ?? '');

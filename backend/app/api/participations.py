@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import exists, select
 
 from app.api.dependencies import Limit, Offset, ReadSession, WriteSession, get_or_404, teacher_id
-from app.models import Membership, Participation, StudyGroup
+from app.models import Membership, Participation, Staff, StudyGroup
 from app.schemas.participation import (
     ParticipationRead,
     QuickResultWrite,
@@ -13,6 +13,11 @@ from app.schemas.participation import (
 from app.services.participation import change_status, quick_save_result, register, save_result
 
 router = APIRouter(prefix="/participations", tags=["participations"])
+
+
+def checker_name(session, current_teacher_id: int | None) -> str:
+    teacher = session.get(Staff, current_teacher_id) if current_teacher_id is not None else None
+    return teacher.name if teacher else "Администратор"
 
 
 def require_teacher_student(session, student_id: int, current_teacher_id: int | None) -> None:
@@ -76,7 +81,7 @@ def create_or_update_quick_result(
     current_teacher_id: int | None = Depends(teacher_id),
 ):
     require_teacher_student(session, data.student_id, current_teacher_id)
-    return quick_save_result(session, data)
+    return quick_save_result(session, data, checker_name(session, current_teacher_id))
 
 
 @router.patch("/{participation_id}/status", response_model=ParticipationRead)
@@ -102,7 +107,7 @@ def update_result(
 ):
     item = get_or_404(session, Participation, participation_id)
     require_teacher_student(session, item.student_id, current_teacher_id)
-    save_result(session, item, data)
+    save_result(session, item, data, checker_name(session, current_teacher_id))
     if item.status == "submitted":
         change_status(item, "checked")
     session.flush()
@@ -118,7 +123,7 @@ def publish_result(
 ):
     item = get_or_404(session, Participation, participation_id)
     require_teacher_student(session, item.student_id, current_teacher_id)
-    save_result(session, item, data)
+    save_result(session, item, data, checker_name(session, current_teacher_id))
     if item.status == "submitted":
         change_status(item, "checked")
     change_status(item, "published")

@@ -8,6 +8,10 @@ class TeacherLogin(Schema):
     middle_name: NonEmpty
 
 
+class TeacherCodeLogin(TeacherLogin):
+    code: str | None = None
+
+
 class TeacherWrite(TeacherLogin):
     group_ids: list[int] = Field(default_factory=list)
 

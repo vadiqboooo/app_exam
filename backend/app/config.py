@@ -16,6 +16,3 @@ class Settings:
         )
     )
     api_key: str = field(default_factory=lambda: os.getenv("API_KEY", ""))
-    student_test_login: bool = field(
-        default_factory=lambda: os.getenv("STUDENT_TEST_LOGIN", "true").lower() == "true"
-    )

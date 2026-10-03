@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,6 +13,7 @@ from app.schemas.exam import ExamRead
 from app.schemas.participation import ParticipationRead, Registration
 from app.schemas.student import StudentRead
 from app.schemas.student_portal import StudentLogin, StudentParticipation, StudentRegistration
+from app.services.access_code import Rejected, authenticate
 from app.services.exams import read_exams
 from app.services.participation import change_status, check_slot, register
 from app.services.student_session import issue_token, read_token
@@ -21,10 +23,10 @@ router = APIRouter(prefix="/api/student", tags=["student portal"])
 
 
 @router.post("/login")
-def login(data: StudentLogin, request: Request, session: ReadSession):
+def login(data: StudentLogin, request: Request, session: WriteSession):
     settings = request.app.state.settings
-    if not settings.student_test_login or not settings.api_key:
-        raise HTTPException(503, "Тестовый вход по имени отключён")
+    if not settings.api_key:
+        raise HTTPException(503, "Настройте API_KEY для входа учеников")
     name = normalize_name(f"{data.last_name} {data.first_name}")
     matches = list(
         session.scalars(
@@ -39,11 +41,16 @@ def login(data: StudentLogin, request: Request, session: ReadSession):
             422, "Ученик не найден или есть полные тёзки. Обратитесь к администратору"
         )
     student = matches[0]
-    if student.access_code_hash:
-        raise HTTPException(403, "Для этого ученика вход только по имени недоступен")
+    result = authenticate(student, data.code)
+    if isinstance(result, Rejected):
+        # Ответ без исключения: иначе транзакция откатится и счётчик попыток потеряется.
+        return JSONResponse({"detail": result.detail}, status_code=result.status)
+    if result != "ok":
+        return {"status": result}
     return {
+        "status": "ok",
         "token": issue_token(student.id, settings.api_key),
-        "student": StudentRead.model_validate(student).model_dump(),
+        "student": StudentRead.model_validate(student).model_dump(mode="json"),
     }
 
 

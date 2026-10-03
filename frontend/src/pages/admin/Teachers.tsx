@@ -1,15 +1,17 @@
-import { useState, type FormEvent } from 'react';
-import { Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { Plus, Search } from 'lucide-react';
 import { api } from '../../api/client';
 import { Button } from '../../components/Button';
+import { CodeAction, CodeBadge, Toast } from '../../components/CodeCell';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
-import { DataTable } from '../../components/DataTable';
+import { EmptyState } from '../../components/EmptyState';
 import { ErrorNotice } from '../../components/ErrorNotice';
-import { FilterBar } from '../../components/FilterBar';
 import { Modal } from '../../components/Modal';
 import { useAction } from '../../hooks/useAction';
 import { useLoad } from '../../hooks/useLoad';
 import { useWorkspace } from '../../layouts/Workspace';
+import { codeState, lastLogin, type CodeState } from '../../lib/accessCode';
+import { plural } from '../../lib/adminEvents';
 import type { Group, Teacher, TeacherWrite } from '../../types';
 
 const loadTeachers = () => api.teachers.list();
@@ -19,11 +21,13 @@ function TeacherForm({
   groups,
   onClose,
   onSaved,
+  onDelete,
 }: {
   teacher?: Teacher;
   groups: Group[];
   onClose: () => void;
   onSaved: () => Promise<void>;
+  onDelete?: () => void;
 }) {
   const [groupIds, setGroupIds] = useState<number[]>(teacher?.group_ids ?? []);
   const [groupSearch, setGroupSearch] = useState('');
@@ -117,6 +121,11 @@ function TeacherForm({
           </fieldset>
         </div>
         <div className="modal-footer">
+          {onDelete && (
+            <Button variant="danger" disabled={busy} onClick={onDelete}>
+              Удалить учителя
+            </Button>
+          )}
           <Button variant="secondary" disabled={busy} onClick={onClose}>
             Отмена
           </Button>
@@ -129,84 +138,129 @@ function TeacherForm({
   );
 }
 
+type Filter = 'all' | CodeState;
+const filters: [Filter, string][] = [
+  ['all', 'Все'],
+  ['set', 'Код создан'],
+  ['first', 'Не входили'],
+  ['reset', 'Сброшен'],
+  ['lock', 'Приостановлен'],
+];
+
 export function Teachers() {
   const { data, error, loading, refresh } = useLoad(loadTeachers);
   const { data: workspace, refresh: refreshWorkspace } = useWorkspace();
   const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<Filter>('all');
   const [editing, setEditing] = useState<Teacher | null | undefined>();
   const [deleting, setDeleting] = useState<Teacher>();
+  const [resetting, setResetting] = useState<Teacher>();
+  const [toast, setToast] = useState('');
   const { busy: deletingBusy, error: deleteError, run: runDelete } = useAction();
-  const teachers = (data ?? []).filter((teacher) =>
-    teacher.name.toLowerCase().includes(search.trim().toLowerCase()),
+  const codes = useAction();
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(''), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const all = (data ?? []).map((teacher) => ({ teacher, state: codeState(teacher) }));
+  const count = (state: CodeState) => all.filter((row) => row.state === state).length;
+  const rows = all.filter(
+    (row) =>
+      (filter === 'all' || row.state === filter) &&
+      row.teacher.name.toLowerCase().includes(search.trim().toLowerCase()),
   );
-  const groupNames = (teacher: Teacher) =>
-    teacher.group_ids
-      .map((id) => workspace.groups.find((group) => group.id === id)?.source_name)
-      .filter(Boolean)
-      .join(', ');
   const saved = async () => {
     await Promise.all([refresh(), refreshWorkspace()]);
     setEditing(undefined);
   };
+  const unlock = (teacher: Teacher) =>
+    void codes.run(async () => {
+      await api.teachers.unlock(teacher.id);
+      await refresh();
+      setToast(`${teacher.name}: вход снова доступен со старым кодом`);
+    });
+  const reset = (teacher: Teacher) =>
+    void codes.run(async () => {
+      await api.teachers.resetCode(teacher.id);
+      await refresh();
+      setResetting(undefined);
+      setToast(`Код сброшен — ${teacher.name} придумает новый при входе`);
+    });
+
   return (
-    <div className="stack page-stack">
+    <div className="sc-section">
       <ErrorNotice message={error} />
-      <FilterBar>
-        <div className="search-input">
-          <Search size={17} />
+      <div className="sc-filters">
+        <label className="sc-search">
+          <Search size={18} />
           <input
-            aria-label="Поиск учителя"
-            placeholder="Найти по имени или отчеству"
+            aria-label="Поиск"
+            placeholder="Фамилия или имя"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
+        </label>
+        <div className="ad-tabs" role="group" aria-label="Статус кода">
+          {filters.map(([key, label]) => (
+            <button type="button" key={key} aria-pressed={filter === key} onClick={() => setFilter(key)}>
+              {label}
+              {key === 'all' ? '' : ` · ${count(key)}`}
+            </button>
+          ))}
         </div>
         <Button icon={<Plus size={17} />} onClick={() => setEditing(null)}>
           Добавить учителя
         </Button>
-      </FilterBar>
+      </div>
       {loading && !data ? (
         <div className="loading" role="status">
           Загружаем учителей…
         </div>
+      ) : rows.length ? (
+        <section className="ad-table" aria-label="Учителя">
+          <div className="sc-row sc-row-staff ad-table-head">
+            <span>СОТРУДНИК</span>
+            <span>РОЛЬ</span>
+            <span>ГРУППЫ</span>
+            <span>КОД ВХОДА</span>
+            <span>ПОСЛЕДНИЙ ВХОД</span>
+            <span className="ad-right">ДЕЙСТВИЕ</span>
+          </div>
+          {rows.map(({ teacher, state }) => (
+            <div className="sc-row sc-row-staff sc-item" key={teacher.id}>
+              <span className="sc-name">
+                <button type="button" onClick={() => setEditing(teacher)} title="Редактировать учителя">
+                  {teacher.name}
+                </button>
+              </span>
+              <span>Учитель</span>
+              <span className="sc-groups">
+                {teacher.group_ids.length
+                  ? plural(teacher.group_ids.length, 'группа', 'группы', 'групп')
+                  : '—'}
+              </span>
+              <CodeBadge state={state} />
+              <span>{lastLogin(teacher.last_login_at)}</span>
+              <span className="sc-act">
+                <CodeAction
+                  state={state}
+                  busy={codes.busy}
+                  onReset={() => setResetting(teacher)}
+                  onUnlock={() => unlock(teacher)}
+                />
+              </span>
+            </div>
+          ))}
+        </section>
       ) : (
-        <DataTable
-          rows={teachers}
-          rowKey={(teacher) => teacher.id}
-          label="Учителя"
-          empty="Учителя пока не добавлены"
-          columns={[
-            { title: 'Учитель', render: (teacher) => <strong>{teacher.name}</strong> },
-            {
-              title: 'Группы',
-              render: (teacher) => groupNames(teacher) || <span className="muted">Не назначены</span>,
-            },
-            { title: 'Количество групп', render: (teacher) => teacher.group_ids.length },
-            {
-              title: 'Действия',
-              render: (teacher) => (
-                <div className="inline table-actions">
-                  <Button
-                    variant="ghost"
-                    aria-label={`Редактировать ${teacher.name}`}
-                    title="Редактировать"
-                    onClick={() => setEditing(teacher)}
-                  >
-                    <Pencil size={16} />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    aria-label={`Удалить ${teacher.name}`}
-                    title="Удалить"
-                    onClick={() => setDeleting(teacher)}
-                  >
-                    <Trash2 size={16} />
-                  </Button>
-                </div>
-              ),
-            },
-          ]}
-        />
+        <div className="panel">
+          <EmptyState
+            title="Учителя не найдены"
+            text="Измените поиск или фильтр. Учителя появляются при импорте из CRM или через «Добавить учителя»."
+          />
+        </div>
       )}
       {editing !== undefined && (
         <TeacherForm
@@ -214,6 +268,25 @@ export function Teachers() {
           groups={workspace.groups}
           onClose={() => setEditing(undefined)}
           onSaved={saved}
+          onDelete={
+            editing
+              ? () => {
+                  setDeleting(editing);
+                  setEditing(undefined);
+                }
+              : undefined
+          }
+        />
+      )}
+      {resetting && (
+        <ConfirmDialog
+          title="Сбросить код?"
+          text={`${resetting.name} больше не сможет войти со старым кодом. При следующем входе сотрудник введёт имя и отчество и придумает новый код из 6 цифр.`}
+          confirm="Сбросить код"
+          busy={codes.busy}
+          error={codes.error}
+          onClose={() => setResetting(undefined)}
+          onConfirm={() => reset(resetting)}
         />
       )}
       {deleting && (
@@ -234,6 +307,7 @@ export function Teachers() {
           }
         />
       )}
+      <Toast message={toast} />
     </div>
   );
 }

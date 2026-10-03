@@ -301,6 +301,7 @@ def test_quick_result_creates_checked_participation_and_updates_it(client):
     assert created.status_code == 200, created.text
     assert created.json()["status"] == "checked"
     assert created.json()["test_score"] == 72
+    assert created.json()["checked_by"] == "Администратор"
 
     payload["test_score"] = 74
     updated = client.post("/api/participations/quick-result", json=payload)
