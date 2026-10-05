@@ -4,7 +4,9 @@ import { ArrowDown, ArrowLeft, ChevronDown, ChevronUp, MessageCircle, Send, X } 
 import type { Exam, Group, Participation, Student, Task } from '../types';
 import { api } from '../api/client';
 import { date, examDate, examSubject, examTitle, score } from '../lib/format';
+import { examsForGroup } from '../lib/groupExam';
 import { automaticScore } from '../lib/scoring';
+import { plural } from '../lib/adminEvents';
 import { useAction } from '../hooks/useAction';
 import { Button } from './Button';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -12,29 +14,14 @@ import { EmptyState } from './EmptyState';
 import { ErrorNotice } from './ErrorNotice';
 import { StatusBadge } from './StatusBadge';
 
-const normalize = (value: string | null | undefined) =>
-  (value ?? '')
-    .toLocaleLowerCase('ru-RU')
-    .replace(/ё/g, 'е')
-    .replace(/[^а-яa-z0-9]+/g, ' ')
-    .trim();
-
-function belongsToSubject(exam: Exam, subject: string | null) {
-  const groupSubject = normalize(subject);
-  const examSubjectName = normalize(exam.subject);
-  return (
-    !!groupSubject &&
-    (groupSubject === examSubjectName ||
-      groupSubject.includes(examSubjectName) ||
-      examSubjectName.includes(groupSubject))
-  );
-}
-
 const shortDate = (value: string) =>
   new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
     .format(new Date(value))
     .replace(',', '')
-    .replace(' г.', '');
+    .replace(' г.', '')
+    .replace(/\.? (\d{2}:\d{2})$/, ', $1');
+const longDay = (value: string) =>
+  new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(new Date(value));
 
 type Filter = 'all' | 'empty' | 'checked' | 'published';
 type Row = { student: Student; item?: Participation };
@@ -126,6 +113,11 @@ function ResultEditor({
   return (
     <div className="tg-editor">
       <ErrorNotice message={error} />
+      {item?.status === 'published' && (
+        <div className="tg-published tg-published-top">
+          Результат опубликован — ученик его видит. Изменения закрыты.
+        </div>
+      )}
       <div className="tg-editor-label">
         Баллы по заданиям <span>· Tab — к следующему заданию</span>
       </div>
@@ -228,7 +220,9 @@ function ResultEditor({
           </div>
         </>
       )}
-      <div className="tg-editor-label">Общий комментарий к работе</div>
+      <div className="tg-editor-label">
+        Общий комментарий<span className="tg-lg"> к работе</span>
+      </div>
       <div className="tg-editor-footer">
         <textarea
           aria-label={`Общий комментарий — ${student.full_name}`}
@@ -237,27 +231,33 @@ function ResultEditor({
           value={overall}
           onChange={(event) => setOverall(event.target.value)}
         />
-        {!isLocked(item) && (
-          <div className="tg-editor-actions">
-            <Button variant="secondary" disabled={busy} onClick={() => void submit(false)}>
-              Сохранить
-            </Button>
-            <Button disabled={busy} onClick={() => setConfirming(true)}>
-              Сохранить и опубликовать
-            </Button>
-            {onNext && (
-              <Button
-                variant="secondary"
-                className="tg-next"
-                disabled={busy}
-                icon={<ArrowDown size={16} />}
-                onClick={() => void (hasScores ? submit(false, onNext) : onNext())}
-              >
-                Следующий ученик
-              </Button>
-            )}
-          </div>
+        {item?.status === 'published' && (
+          <div className="tg-published tg-published-bottom">Результат опубликован. Изменения закрыты.</div>
         )}
+        <div className="tg-editor-actions">
+          {!isLocked(item) && (
+            <>
+              <Button variant="secondary" disabled={busy} onClick={() => void submit(false)}>
+                Сохранить
+              </Button>
+              <Button disabled={busy} onClick={() => setConfirming(true)}>
+                <span className="tg-lg">Сохранить и опубликовать</span>
+                <span className="tg-sm">Опубликовать</span>
+              </Button>
+            </>
+          )}
+          {onNext && (
+            <Button
+              variant="secondary"
+              className="tg-next"
+              disabled={busy}
+              icon={<ArrowDown size={16} />}
+              onClick={() => void (hasScores && !isLocked(item) ? submit(false, onNext) : onNext())}
+            >
+              Следующий ученик
+            </Button>
+          )}
+        </div>
       </div>
       {confirming && (
         <ConfirmDialog
@@ -291,21 +291,11 @@ export function TeacherGroupResults({
   back: string;
   onSaved: () => Promise<void>;
 }) {
-  const available = useMemo(
-    () =>
-      exams
-        .filter(
-          (exam) =>
-            exam.is_active &&
-            belongsToSubject(exam, group.subject) &&
-            (!group.exam_format || exam.format === group.exam_format),
-        )
-        .sort((left, right) => right.starts_at.localeCompare(left.starts_at)),
-    [exams, group.exam_format, group.subject],
-  );
+  const available = useMemo(() => examsForGroup(exams, group), [exams, group]);
   const [examId, setExamId] = useState(available[0]?.id ?? 0);
   const [filter, setFilter] = useState<Filter>('all');
   const [openId, setOpenId] = useState<number | null>(null);
+  const [slotFilter, setSlotFilter] = useState<'all' | 'none' | number>('all');
   const [publishingAll, setPublishingAll] = useState(false);
   const bulk = useAction();
   const exam = available.find((candidate) => candidate.id === examId) ?? available[0];
@@ -328,13 +318,55 @@ export function TeacherGroupResults({
   const checked = rows.filter((row) => row.item?.status === 'checked');
   const published = rows.filter((row) => row.item?.status === 'published');
   const empty = rows.filter((row) => row.item?.status !== 'absent' && !isFinal(row.item));
+  const inSlot = (row: Row) =>
+    slotFilter === 'all' || (slotFilter === 'none' ? !row.item : row.item?.slot_id === slotFilter);
   const visible = rows.filter(
     (row) =>
-      filter === 'all' ||
-      (filter === 'empty' && row.item?.status !== 'absent' && !isFinal(row.item)) ||
-      (filter === 'checked' && row.item?.status === 'checked') ||
-      (filter === 'published' && row.item?.status === 'published'),
+      inSlot(row) &&
+      (filter === 'all' ||
+        (filter === 'empty' && row.item?.status !== 'absent' && !isFinal(row.item)) ||
+        (filter === 'checked' && row.item?.status === 'checked') ||
+        (filter === 'published' && row.item?.status === 'published')),
   );
+  const sessions: { key: 'all' | 'none' | number; title: string; when: string; count: number }[] = [
+    { key: 'all', title: 'Все ученики', when: 'Вся группа', count: rows.length },
+    ...(exam?.slots ?? [])
+      .map((slot) => ({
+        key: slot.id,
+        title: slot.school_name,
+        when: shortDate(slot.starts_at),
+        count: rows.filter((row) => row.item?.slot_id === slot.id).length,
+      }))
+      .filter((session) => session.count > 0),
+    ...(rows.some((row) => !row.item)
+      ? [
+          {
+            key: 'none' as const,
+            title: 'Не записаны',
+            when: 'Нужно записать',
+            count: rows.filter((row) => !row.item).length,
+          },
+        ]
+      : []),
+  ];
+  // The pupil's registrations for the whole event, so other subjects are visible too.
+  const registrations = (student: Student, item?: Participation) => {
+    const chips = [];
+    if (!item) chips.push({ label: 'Нет записи', warn: true });
+    const eventExams = exam.event_id ? exams.filter((e) => e.event_id === exam.event_id) : [exam];
+    for (const candidate of [exam, ...eventExams.filter((e) => e.id !== exam.id)]) {
+      const entry = participations.find(
+        (p) => p.student_id === student.id && p.exam_id === candidate.id && p.status !== 'cancelled',
+      );
+      if (!entry) continue;
+      const slot = candidate.slots.find((s) => s.id === entry.slot_id);
+      chips.push({
+        label: [candidate.subject, slot ? shortDate(slot.starts_at) : ''].filter(Boolean).join(' · '),
+        warn: false,
+      });
+    }
+    return chips;
+  };
   const tabs: [Filter, string, number][] = [
     ['all', 'Все', rows.length],
     ['empty', 'Не внесены', empty.length],
@@ -378,7 +410,14 @@ export function TeacherGroupResults({
             )}
           </h1>
           <p>
-            {[group.source_name, group.schedule, `${students.length} учеников`].filter(Boolean).join(' · ')}
+            {[
+              group.source_name,
+              group.schedule,
+              `${students.length} учеников`,
+              exam ? `${enrolled.length} записаны` : '',
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </p>
         </div>
         {available.length > 0 && (
@@ -387,7 +426,7 @@ export function TeacherGroupResults({
             <select value={exam?.id ?? ''} onChange={(event) => setExamId(Number(event.target.value))}>
               {available.map((candidate) => (
                 <option key={candidate.id} value={candidate.id}>
-                  {examTitle(candidate)} · {examSubject(candidate)} · {date(examDate(candidate))}
+                  {examTitle(candidate)} · {longDay(examDate(candidate))}
                 </option>
               ))}
             </select>
@@ -419,11 +458,47 @@ export function TeacherGroupResults({
           <div className="tg-stats">
             {stats.map(([label, value]) => (
               <div key={label}>
-                <span>{label}</span>
+                <span>
+                  {label === 'Баллы не внесены' ? (
+                    <>
+                      <em className="tg-lg">{label}</em>
+                      <em className="tg-sm">Не внесены</em>
+                    </>
+                  ) : (
+                    label
+                  )}
+                </span>
                 <strong>{value}</strong>
               </div>
             ))}
           </div>
+          <section className="tg-sessions" aria-label="Куда записаны ученики">
+            <div className="tg-sessions-head">
+              <h2>Куда записаны ученики</h2>
+              <span>Сеансы по предмету группы · нажмите, чтобы показать только их учеников</span>
+            </div>
+            <div className="tg-sessions-grid">
+              {sessions.map((session) => (
+                <button
+                  type="button"
+                  key={session.key}
+                  aria-pressed={slotFilter === session.key}
+                  className={session.key === 'none' ? 'is-none' : undefined}
+                  onClick={() => {
+                    setSlotFilter(session.key);
+                    setOpenId(null);
+                  }}
+                >
+                  <strong>{session.title}</strong>
+                  <span>{session.when}</span>
+                  <b>
+                    {session.count}{' '}
+                    <small>{plural(session.count, 'ученик', 'ученика', 'учеников').split(' ')[1]}</small>
+                  </b>
+                </button>
+              ))}
+            </div>
+          </section>
           <div className="tg-toolbar">
             <div className="tg-tabs" role="tablist" aria-label="Фильтр учеников">
               {tabs.map(([key, label, count]) => (
@@ -450,21 +525,18 @@ export function TeacherGroupResults({
           <div className="tg-table" role="table" aria-label="Результаты учеников">
             <div className="tg-row tg-row-head" role="row">
               <span>Ученик</span>
+              <span>Запись на пробник</span>
               <span>Статус</span>
-              <span>Первичный</span>
-              <span>Тестовый</span>
+              <span className="tg-scores">
+                <span>Первичный</span>
+                <span>Тестовый</span>
+              </span>
               <span className="tg-right">Действие</span>
             </div>
             {visible.length === 0 && <div className="tg-none">В этой категории пока никого нет</div>}
             {visible.map(({ student, item }, index) => {
               const open = openId === student.id;
-              const slot = exam.slots.find((candidate) => candidate.id === item?.slot_id);
-              const sub = [
-                student.grade ? `${student.grade} класс` : '',
-                slot ? `${slot.school_name}, ${shortDate(slot.starts_at)}` : '',
-              ]
-                .filter(Boolean)
-                .join(' · ');
+              const sub = student.grade ? `${student.grade} класс` : '';
               const nextRow = visible.slice(index + 1).find((row) => row.item?.status !== 'absent');
               return (
                 <div className={`tg-item ${open ? 'is-open' : ''}`} key={student.id}>
@@ -473,17 +545,28 @@ export function TeacherGroupResults({
                       <strong>{student.full_name}</strong>
                       {sub && <small>{sub}</small>}
                     </span>
-                    <span>
+                    <span className="tg-regs">
+                      {registrations(student, item).map((chip) => (
+                        <span key={chip.label} className={chip.warn ? 'is-warn' : undefined}>
+                          {chip.label}
+                        </span>
+                      ))}
+                    </span>
+                    <span className="tg-status">
                       {item ? (
                         <StatusBadge status={item.status} />
                       ) : (
-                        <span className="badge">Нет записи</span>
+                        <span className="badge badge-none">Нет записи</span>
                       )}
                     </span>
-                    <span className="tg-primary">
-                      {item?.primary_score != null ? score(item.primary_score) : '—'}
+                    <span className="tg-scores">
+                      <span className="tg-primary">
+                        {item?.primary_score != null ? score(item.primary_score) : '—'}
+                      </span>
+                      <span className="tg-test">
+                        {item?.test_score != null ? score(item.test_score) : '—'}
+                      </span>
                     </span>
-                    <span className="tg-test">{item?.test_score != null ? score(item.test_score) : '—'}</span>
                     <span className="tg-right">
                       {item?.status === 'absent' ? (
                         <span className="tg-nowork">Нет работы</span>

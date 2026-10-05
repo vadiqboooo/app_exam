@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Search } from 'lucide-react';
-import { api } from '../api/client';
-import type { Exam, Group, Membership, Participation, Student } from '../types';
-import { date, examSubject, examTitle, groupExams, score, studentGroups } from '../lib/format';
+import { api, loadSession } from '../api/client';
+import type { Exam, Participation, StudentCandidate } from '../types';
+import { date, examSubject, examTitle, groupExams, score } from '../lib/format';
 import { automaticScore, resultScoreLabel } from '../lib/scoring';
 import { useAction } from '../hooks/useAction';
 import { Button } from './Button';
@@ -11,8 +11,6 @@ import { ErrorNotice } from './ErrorNotice';
 import { statusLabels } from './StatusBadge';
 import { Toast } from './CodeCell';
 import { TaskScoreGrid, type TaskScoreValue } from './TaskScoreGrid';
-
-const normalize = (value: string) => value.toLowerCase().replaceAll('ё', 'е').trim().replace(/\s+/g, ' ');
 
 const scoreValues = (exam?: Exam, item?: Participation): TaskScoreValue[] =>
   (exam?.structure_data?.tasks ?? []).map((task) => ({
@@ -25,16 +23,10 @@ type Mode = 'save' | 'more' | 'publish';
 
 export function QuickResultForm({
   exams,
-  students,
-  groups,
-  memberships,
   participations,
   onSaved,
 }: {
   exams: Exam[];
-  students: Student[];
-  groups: Group[];
-  memberships: Membership[];
   participations: Participation[];
   onSaved: () => Promise<void>;
 }) {
@@ -44,6 +36,10 @@ export function QuickResultForm({
   const [studentId, setStudentId] = useState('');
   const [slotId, setSlotId] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
+  const [found, setFound] = useState<StudentCandidate[]>([]);
+  const [chosen, setChosen] = useState<StudentCandidate | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [values, setValues] = useState<TaskScoreValue[]>([]);
   const [primary, setPrimary] = useState('');
   const [testScore, setTestScore] = useState('');
@@ -65,7 +61,7 @@ export function QuickResultForm({
     setExamId(group?.length === 1 ? String(group[0].id) : '');
   };
   const exam = exams.find((item) => item.id === Number(examId));
-  const student = students.find((item) => item.id === Number(studentId));
+  const student = chosen ?? undefined;
   const existing = participations.find(
     (item) => item.exam_id === Number(examId) && item.student_id === Number(studentId),
   );
@@ -77,34 +73,55 @@ export function QuickResultForm({
   const maxTotal = tasks.reduce((sum, task) => sum + task.max_score, 0);
   const calculated = exam ? automaticScore(exam, total) : null;
 
-  const stateOf = (candidate: Student) => {
-    const item = participations.find((p) => p.exam_id === Number(examId) && p.student_id === candidate.id);
-    if (!item) return { kind: 'none', label: 'Без записи', locked: false };
-    if (item.status === 'published') return { kind: 'pub', label: 'Уже опубликован', locked: true };
-    if (item.status === 'absent' || item.status === 'cancelled')
-      return { kind: 'muted', label: statusLabels[item.status], locked: true };
-    return { kind: 'reg', label: 'Записан', locked: false };
+  const stateOf = (candidate: StudentCandidate) => {
+    const status = candidate.status;
+    if (!status) return { kind: 'none', label: 'Без записи', locked: false };
+    if (status === 'published') return { kind: 'pub', label: 'Уже опубликован', locked: true };
+    if (status === 'absent' || status === 'cancelled')
+      return { kind: 'muted', label: statusLabels[status], locked: true };
+    return { kind: 'reg', label: status === 'checked' ? 'Проверено' : 'Записан', locked: false };
   };
-  const detailsOf = (candidate: Student) => {
-    const group = studentGroups(candidate.id, memberships, groups)[0];
+  const detailsOf = (candidate: StudentCandidate) => {
+    const group = candidate.groups[0];
     return {
       group,
-      sub: [candidate.grade ? `${candidate.grade} класс` : null, group?.source_name ?? 'Без группы']
+      sub: [
+        candidate.grade ? `${candidate.grade} класс` : null,
+        group ? `${group.source_name}${group.teacher_name ? `, ${group.teacher_name}` : ''}` : 'Без группы',
+      ]
         .filter(Boolean)
         .join(' · '),
     };
   };
-  const matches = useMemo(() => {
-    const words = normalize(studentSearch).split(' ').filter(Boolean);
-    if (!words.length) return [];
-    return students
-      .filter((item) => item.is_active && words.every((w) => normalize(item.full_name).includes(w)))
-      .sort((a, b) => a.full_name.localeCompare(b.full_name, 'ru'))
-      .slice(0, 30);
-  }, [studentSearch, students]);
+
+  // Any pupil of the school can be chosen, not only those of the teacher's own groups.
+  useEffect(() => {
+    const query = studentSearch.trim();
+    if (!exam || collapsed || !query) {
+      if (!query) setFound([]);
+      return;
+    }
+    let current = true;
+    setSearching(true);
+    const timer = setTimeout(() => {
+      api.students
+        .search(query, exam.id)
+        .then((result) => current && setFound(result))
+        .catch(() => current && setFound([]))
+        .finally(() => current && setSearching(false));
+    }, 250);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+      setSearching(false);
+    };
+  }, [studentSearch, exam?.id, collapsed]);
 
   useEffect(() => {
     setStudentId('');
+    setChosen(null);
+    setFound([]);
+    setCollapsed(false);
     setStudentSearch('');
     setSlotId('');
     setValues(scoreValues(exam));
@@ -152,6 +169,9 @@ export function QuickResultForm({
       await onSaved();
       if (mode === 'more') {
         setStudentId('');
+        setChosen(null);
+        setFound([]);
+        setCollapsed(false);
         setStudentSearch('');
         setToast(`${student.full_name}: результат сохранён`);
         setTimeout(() => setToast(''), 4000);
@@ -233,21 +253,29 @@ export function QuickResultForm({
                     placeholder="Фамилия или имя"
                     autoComplete="off"
                     value={studentSearch}
-                    onChange={(e) => setStudentSearch(e.target.value)}
+                    onChange={(e) => {
+                      setStudentSearch(e.target.value);
+                      setCollapsed(false);
+                    }}
                   />
                 </label>
               </div>
-              <div className="rn-list">
-                {matches.map((item) => {
+              <div className={`rn-list${collapsed ? ' is-collapsed' : ''}`}>
+                {found.map((item) => {
                   const state = stateOf(item);
                   return (
                     <button
                       type="button"
                       key={item.id}
                       className="rn-student"
-                      aria-pressed={item.id === Number(studentId)}
+                      aria-pressed={item.id === chosen?.id}
                       disabled={state.locked}
-                      onClick={() => setStudentId(String(item.id))}
+                      onClick={() => {
+                        setChosen(item);
+                        setStudentId(String(item.id));
+                        setStudentSearch(item.full_name);
+                        setCollapsed(true);
+                      }}
                     >
                       <span>
                         <strong>{item.full_name}</strong>
@@ -257,7 +285,9 @@ export function QuickResultForm({
                     </button>
                   );
                 })}
-                {studentSearch.trim() && !matches.length && <p className="rn-hint">Никого не нашли</p>}
+                {studentSearch.trim() && !found.length && (
+                  <p className="rn-hint">{searching ? 'Ищем…' : 'Никого не нашли'}</p>
+                )}
                 {!studentSearch.trim() && <p className="rn-hint">Введите фамилию или имя ученика</p>}
               </div>
             </>
@@ -274,6 +304,9 @@ export function QuickResultForm({
                     <h2>{student.full_name}</h2>
                     <span className={`rn-badge rn-badge-${status.kind}`}>{status.label}</span>
                   </div>
+                  <span className="rn-inline">
+                    Перв. <b>{score(total)}</b> · тест. <b>{calculated != null ? score(calculated) : '—'}</b>
+                  </span>
                   <span>
                     {[
                       student.grade ? `${student.grade} класс` : null,
@@ -316,7 +349,8 @@ export function QuickResultForm({
               {status.kind === 'none' && (
                 <div className="rn-note">
                   Ученик не был записан на этот пробник. Запись создастся автоматически, а учитель группы
-                  увидит, что результат внёс администратор.
+                  увидит, что результат{' '}
+                  {loadSession()?.role === 'teacher' ? 'внесли вы' : 'внёс администратор'}.
                 </div>
               )}
               {tasks.length ? (
@@ -362,7 +396,8 @@ export function QuickResultForm({
                     disabled={busy || !ready}
                     onClick={() => save('more')}
                   >
-                    Сохранить и добавить ещё
+                    <span className="rn-long">Сохранить и добавить ещё</span>
+                    <span className="rn-short">Ещё один</span>
                   </button>
                   <Button type="button" disabled={busy || !ready} onClick={() => save('publish')}>
                     Сохранить и опубликовать

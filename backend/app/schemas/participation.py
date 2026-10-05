@@ -67,3 +67,16 @@ class ParticipationRead(Schema):
     @classmethod
     def utc_time(cls, value):
         return value.replace(tzinfo=UTC) if value is not None else None
+
+
+class ParticipationStaffRead(ParticipationRead):
+    """What staff see; the student's own screens never get the note for the parent."""
+
+    feedback: str | None = None
+    parent_status: Literal["none", "sent", "got"] = "none"
+
+
+class FeedbackWrite(Schema):
+    participation_ids: list[int] = Field(min_length=1)
+    feedback: str | None = Field(default=None, max_length=4000)
+    parent_status: Literal["none", "sent", "got"] | None = None

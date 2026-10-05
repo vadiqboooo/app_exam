@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Plus, Search } from 'lucide-react';
-import { api } from '../../api/client';
+import { api, loadSession } from '../../api/client';
 import { Button } from '../../components/Button';
 import { CodeAction, CodeBadge, Toast } from '../../components/CodeCell';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
@@ -12,9 +12,14 @@ import { useLoad } from '../../hooks/useLoad';
 import { useWorkspace } from '../../layouts/Workspace';
 import { codeState, lastLogin, type CodeState } from '../../lib/accessCode';
 import { plural } from '../../lib/adminEvents';
-import type { Group, Teacher, TeacherWrite } from '../../types';
+import type { Group, StaffRole, Teacher, TeacherWrite } from '../../types';
 
 const loadTeachers = () => api.teachers.list();
+const roleChips: [StaffRole, string][] = [
+  ['admin', 'Администратор'],
+  ['teacher', 'Учитель'],
+  ['responsible', 'Ответственный'],
+];
 
 function TeacherForm({
   teacher,
@@ -50,7 +55,12 @@ function TeacherForm({
     });
   }
   return (
-    <Modal title={teacher ? 'Редактировать учителя' : 'Добавить учителя'} onClose={onClose} wide busy={busy}>
+    <Modal
+      title={teacher ? 'Редактировать сотрудника' : 'Добавить сотрудника'}
+      onClose={onClose}
+      wide
+      busy={busy}
+    >
       <form onSubmit={submit}>
         <div className="modal-body stack">
           <ErrorNotice message={error} />
@@ -155,7 +165,9 @@ export function Teachers() {
   const [editing, setEditing] = useState<Teacher | null | undefined>();
   const [deleting, setDeleting] = useState<Teacher>();
   const [resetting, setResetting] = useState<Teacher>();
+  const [dropping, setDropping] = useState<Teacher>();
   const [toast, setToast] = useState('');
+  const me = loadSession()?.staffId;
   const { busy: deletingBusy, error: deleteError, run: runDelete } = useAction();
   const codes = useAction();
   useEffect(() => {
@@ -181,6 +193,23 @@ export function Teachers() {
       await refresh();
       setToast(`${teacher.name}: вход снова доступен со старым кодом`);
     });
+  const toggleRole = (teacher: Teacher, role: StaffRole, confirmed = false) => {
+    const label = roleChips.find(([key]) => key === role)![1];
+    const had = teacher.roles.includes(role);
+    const roles = had ? teacher.roles.filter((item) => item !== role) : [...teacher.roles, role];
+    if (!roles.length) return;
+    // Taking the teacher role away also frees the groups, so ask first.
+    if (had && role === 'teacher' && teacher.group_ids.length && !confirmed) {
+      setDropping(teacher);
+      return;
+    }
+    void codes.run(async () => {
+      await api.teachers.setRoles(teacher.id, roles);
+      await Promise.all([refresh(), refreshWorkspace()]);
+      setDropping(undefined);
+      setToast(`${teacher.name}: ${had ? `роль «${label}» снята` : `добавлена роль «${label}»`}`);
+    });
+  };
   const reset = (teacher: Teacher) =>
     void codes.run(async () => {
       await api.teachers.resetCode(teacher.id);
@@ -211,7 +240,7 @@ export function Teachers() {
           ))}
         </div>
         <Button icon={<Plus size={17} />} onClick={() => setEditing(null)}>
-          Добавить учителя
+          Добавить сотрудника
         </Button>
       </div>
       {loading && !data ? (
@@ -222,7 +251,9 @@ export function Teachers() {
         <section className="ad-table" aria-label="Учителя">
           <div className="sc-row sc-row-staff ad-table-head">
             <span>СОТРУДНИК</span>
-            <span>РОЛЬ</span>
+            <span>
+              РОЛИ · <small>можно несколько</small>
+            </span>
             <span>ГРУППЫ</span>
             <span>КОД ВХОДА</span>
             <span>ПОСЛЕДНИЙ ВХОД</span>
@@ -231,13 +262,28 @@ export function Teachers() {
           {rows.map(({ teacher, state }) => (
             <div className="sc-row sc-row-staff sc-item" key={teacher.id}>
               <span className="sc-name">
-                <button type="button" onClick={() => setEditing(teacher)} title="Редактировать учителя">
+                <button type="button" onClick={() => setEditing(teacher)} title="Редактировать сотрудника">
                   {teacher.name}
                 </button>
+                {teacher.id === me && <small>это вы</small>}
               </span>
-              <span>Учитель</span>
+              <span className="sc-roles">
+                {roleChips.map(([role, label]) => (
+                  <button
+                    type="button"
+                    key={role}
+                    role="switch"
+                    aria-checked={teacher.roles.includes(role)}
+                    className={`is-${role}`}
+                    disabled={codes.busy}
+                    onClick={() => toggleRole(teacher, role)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </span>
               <span className="sc-groups">
-                {teacher.group_ids.length
+                {teacher.roles.includes('teacher') && teacher.group_ids.length
                   ? plural(teacher.group_ids.length, 'группа', 'группы', 'групп')
                   : '—'}
               </span>
@@ -257,8 +303,8 @@ export function Teachers() {
       ) : (
         <div className="panel">
           <EmptyState
-            title="Учителя не найдены"
-            text="Измените поиск или фильтр. Учителя появляются при импорте из CRM или через «Добавить учителя»."
+            title="Сотрудники не найдены"
+            text="Измените поиск или фильтр. Сотрудники появляются при импорте из CRM или через «Добавить сотрудника»."
           />
         </div>
       )}
@@ -287,6 +333,18 @@ export function Teachers() {
           error={codes.error}
           onClose={() => setResetting(undefined)}
           onConfirm={() => reset(resetting)}
+        />
+      )}
+      {dropping && (
+        <ConfirmDialog
+          title="Снять роль «Учитель»?"
+          text={`${dropping.name} перестанет быть учителем. Групп, которые останутся без учителя: ${dropping.group_ids.length}. Предметы, за которые сотрудник отвечал, тоже освободятся.`}
+          confirm="Снять роль"
+          danger
+          busy={codes.busy}
+          error={codes.error}
+          onClose={() => setDropping(undefined)}
+          onConfirm={() => toggleRole(dropping, 'teacher', true)}
         />
       )}
       {deleting && (

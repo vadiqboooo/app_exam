@@ -1,12 +1,18 @@
 export type Role = 'admin' | 'responsible' | 'teacher' | 'student';
 export type Status =
   'registered' | 'attended' | 'submitted' | 'checked' | 'published' | 'absent' | 'cancelled';
+export type StaffRole = 'admin' | 'responsible' | 'teacher';
 export interface Session {
   role: Role;
   name: string;
   token: string;
   studentId?: number;
+  /** Set for an employee who teaches: the same id as `staffId`. */
   teacherId?: number;
+  /** Employee id when the person signed in with a personal code. */
+  staffId?: number;
+  /** All roles of a signed-in employee; `role` is the highest of them. */
+  roles?: StaffRole[];
 }
 export interface Student {
   id: number;
@@ -18,6 +24,14 @@ export interface Student {
   has_code?: boolean;
   locked_until?: string | null;
   last_login_at?: string | null;
+}
+/** A pupil found by name among all pupils, with their groups and the work on a chosen exam. */
+export interface StudentCandidate {
+  id: number;
+  full_name: string;
+  grade: number | null;
+  groups: { source_name: string; teacher_name: string | null }[];
+  status: Status | null;
 }
 export interface Group {
   id: number;
@@ -35,6 +49,7 @@ export interface Teacher {
   name: string;
   first_name: string;
   middle_name: string;
+  roles: StaffRole[];
   group_ids: number[];
   has_code: boolean;
   locked_until: string | null;
@@ -44,6 +59,8 @@ export interface TeacherWrite {
   first_name: string;
   middle_name: string;
   group_ids: number[];
+  /** Only sent when creating an employee. */
+  roles?: StaffRole[];
 }
 export interface Membership {
   id: number;
@@ -71,8 +88,38 @@ export interface SubjectSetting {
   grade_scale: GradeRange[] | null;
   is_active: boolean;
   max_primary_score: number;
+  duration_minutes: number | null;
+  responsible_id: number | null;
+  responsible_name: string | null;
+  responsible_since: string | null;
+  variants_count: number;
 }
-export type SubjectSettingWrite = Omit<SubjectSetting, 'id' | 'max_primary_score'>;
+export interface SubjectSettingWrite {
+  name: string;
+  format: 'ege' | 'oge';
+  tasks: Task[];
+  primary_to_secondary_scale: number[] | null;
+  grade_scale: GradeRange[] | null;
+  is_active: boolean;
+  // Left out, these keep their stored value (the active switch of the list sends neither).
+  duration_minutes?: number | null;
+  responsible_id?: number | null;
+}
+export type SubjectContentWrite = Pick<
+  SubjectSettingWrite,
+  'tasks' | 'primary_to_secondary_scale' | 'grade_scale'
+>;
+export interface SubjectVariant {
+  id: number;
+  subject_id: number;
+  name: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  uploaded_at: string;
+  /** Exam events this variant is printed for. */
+  event_ids: number[];
+}
 export interface Exam {
   id: number;
   event_id: number | null;
@@ -157,7 +204,11 @@ export interface Participation extends ResultWrite {
   updated_at: string;
   published_at: string | null;
   checked_by: string | null;
+  /** What to tell the student and the parent; kept for staff only. */
+  feedback: string | null;
+  parent_status: ParentStatus;
 }
+export type ParentStatus = 'none' | 'sent' | 'got';
 export type StudentParticipation = Pick<Participation, 'id' | 'exam_id' | 'slot_id' | 'status'>;
 export interface Workspace {
   students: Student[];

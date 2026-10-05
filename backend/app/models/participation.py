@@ -32,3 +32,6 @@ class Participation(Base):
     published_at: Mapped[datetime | None]
     # Name snapshot of whoever last entered or changed the scores.
     checked_by: Mapped[str | None]
+    # What to tell the student and the parent about this exam, and how far the message got.
+    feedback: Mapped[str | None]
+    parent_status: Mapped[str] = mapped_column(default="none", server_default="none")

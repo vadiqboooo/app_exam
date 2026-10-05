@@ -113,7 +113,7 @@ def _synchronize(
     groups = {g.source_name: g for g in session.scalars(select(StudyGroup))}
     teachers = {
         normalize_name(teacher.name): teacher
-        for teacher in session.scalars(select(Staff).where(Staff.role == "teacher"))
+        for teacher in session.scalars(select(Staff).where(Staff.is_teacher.is_(True)))
     }
     active = defaultdict(dict)
     for membership in session.scalars(select(Membership).where(Membership.ended_at.is_(None))):

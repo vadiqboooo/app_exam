@@ -87,10 +87,17 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
                 studentId: result.student.id,
               }
             : {
-                role: 'teacher',
+                // An employee with several roles opens the screen of the highest one.
+                role: result.teacher.roles.includes('admin')
+                  ? 'admin'
+                  : result.teacher.roles.includes('responsible')
+                    ? 'responsible'
+                    : 'teacher',
                 name: result.teacher.name,
                 token: result.token,
-                teacherId: result.teacher.id,
+                staffId: result.teacher.id,
+                teacherId: result.teacher.roles.includes('teacher') ? result.teacher.id : undefined,
+                roles: result.teacher.roles,
               };
       } else {
         setApiToken(key.trim());

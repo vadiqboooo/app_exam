@@ -20,13 +20,13 @@ def login(data: TeacherCodeLogin, request: Request, session: WriteSession):
     name_key = normalize_name(f"{data.first_name} {data.middle_name}")
     matches = [
         teacher
-        for teacher in session.scalars(select(Staff).where(Staff.role == "teacher"))
+        for teacher in session.scalars(select(Staff))
         if normalize_name(teacher.name) == name_key
     ]
     if len(matches) != 1:
         raise HTTPException(
             422,
-            "Учитель не найден или имя и отчество неоднозначны. Проверьте данные в CRM",
+            "Сотрудник не найден или имя и отчество неоднозначны. Проверьте данные в CRM",
         )
     teacher = matches[0]
     has_groups = session.scalar(
@@ -34,7 +34,8 @@ def login(data: TeacherCodeLogin, request: Request, session: WriteSession):
             StudyGroup.teacher_id == teacher.id, StudyGroup.is_active.is_(True)
         )
     )
-    if has_groups is None:
+    # Only a pure teacher needs groups to get in; administrators and responsible staff do not.
+    if has_groups is None and not (teacher.is_admin or teacher.is_responsible):
         raise HTTPException(422, "У учителя нет активных групп из CRM")
     result = authenticate(teacher, data.code)
     if isinstance(result, Rejected):
@@ -45,5 +46,5 @@ def login(data: TeacherCodeLogin, request: Request, session: WriteSession):
     return {
         "status": "ok",
         "token": issue_token(teacher.id, settings.api_key, "teacher"),
-        "teacher": {"id": teacher.id, "name": teacher.name},
+        "teacher": {"id": teacher.id, "name": teacher.name, "roles": teacher.roles},
     }

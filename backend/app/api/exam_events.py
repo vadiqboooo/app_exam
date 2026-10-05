@@ -3,7 +3,15 @@ from sqlalchemy import delete, func, select
 
 from app.api.dependencies import WriteSession, get_or_404, require_admin
 from app.importers.record import normalize_name
-from app.models import Exam, ExamEvent, ExamSchool, ExamSlot, Participation, Subject
+from app.models import (
+    Exam,
+    ExamEvent,
+    ExamSchool,
+    ExamSlot,
+    Participation,
+    Subject,
+    VariantEvent,
+)
 from app.schemas.exam_event import EventCreate, EventRead
 from app.time import utcnow
 
@@ -243,6 +251,7 @@ def delete_event(event_id: int, session: WriteSession):
     event = get_or_404(session, ExamEvent, event_id)
     exam_ids = select(Exam.id).where(Exam.event_id == event_id)
     slot_ids = select(ExamSlot.id).where(ExamSlot.event_id == event_id)
+    session.execute(delete(VariantEvent).where(VariantEvent.event_id == event_id))
     session.execute(delete(Participation).where(Participation.exam_id.in_(exam_ids)))
     session.execute(delete(ExamSlot).where(ExamSlot.id.in_(slot_ids)))
     session.execute(delete(Exam).where(Exam.event_id == event_id))

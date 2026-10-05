@@ -79,7 +79,7 @@ def count_ru(n: int, one: str, few: str, many: str) -> str:
 
 
 def _teachers(session: Session) -> list[Staff]:
-    return list(session.scalars(select(Staff).where(Staff.role == "teacher")))
+    return list(session.scalars(select(Staff).where(Staff.is_teacher.is_(True))))
 
 
 def teachers_preview(

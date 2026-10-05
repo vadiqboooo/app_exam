@@ -14,13 +14,21 @@ export function GroupDetail() {
   const { data, refresh } = useWorkspace();
   const group = data.groups.find((g) => g.id === Number(id));
   const from = location.state?.from;
-  const back = typeof from === 'string' && /^\/(?:school\/)?groups(?:\?|$)/.test(from) ? from : '/groups';
+  const back =
+    typeof from === 'string' && /^\/(?:school\/)?groups(?:\?|$)|^\/my-groups(?:\?|$)/.test(from)
+      ? from
+      : '/groups';
+  // An administrator who teaches sees their own group the way a teacher does.
+  const session = loadSession();
+  const teacherView =
+    session?.role === 'teacher' ||
+    (!!session?.teacherId && group?.teacher_id === session.teacherId && back.startsWith('/my-groups'));
   const students = data.students.filter(
     (s) =>
       s.is_active &&
       data.memberships.some((m) => m.student_id === s.id && m.group_id === group?.id && !m.ended_at),
   );
-  if (group && data.exams.length && loadSession()?.role === 'teacher')
+  if (group && data.exams.length && teacherView)
     return (
       <TeacherGroupResults
         key={group.id}

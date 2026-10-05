@@ -12,6 +12,8 @@ import { ExamDetail } from './pages/admin/ExamDetail';
 import { ExamEventDetail } from './pages/admin/ExamEventDetail';
 import { School } from './pages/admin/School';
 import { ResultNew } from './pages/admin/ResultNew';
+import { TeacherSubjects } from './pages/teacher/TeacherSubjects';
+import { TeacherSubjectPage } from './pages/teacher/TeacherSubjectPage';
 import { StudentDetail } from './pages/admin/StudentDetail';
 import { Results } from './pages/admin/Results';
 import { Groups } from './pages/teacher/Groups';
@@ -82,6 +84,15 @@ export default function App() {
               )}
               <Route path="/groups" element={<Groups title={teacher ? 'Мои группы' : 'Группы'} />} />
               <Route path="/groups/:id" element={<GroupDetail />} />
+              {(teacher || session.teacherId) && (
+                <>
+                  <Route path="/subjects" element={<TeacherSubjects />} />
+                  <Route path="/subjects/:id" element={<TeacherSubjectPage />} />
+                </>
+              )}
+              {!teacher && session.teacherId && (
+                <Route path="/my-groups" element={<Groups title="Мои группы" mine={session.teacherId} />} />
+              )}
               <Route path="/results" element={<Results />} />
               <Route path="/results/new" element={<ResultNew />} />
             </Route>

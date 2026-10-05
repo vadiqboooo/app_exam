@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ArrowLeft, Eye, Search } from 'lucide-react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useWorkspace } from '../../layouts/Workspace';
 import { useAction } from '../../hooks/useAction';
@@ -11,6 +11,8 @@ import { ErrorNotice } from '../../components/ErrorNotice';
 import { ExamForm } from '../../components/ExamForm';
 import { DataTable } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
+import { EventVariants } from '../../components/EventVariants';
+import { useEventVariants } from '../../lib/useEventVariants';
 import { examSubject } from '../../lib/format';
 import { plural, summarize } from '../../lib/adminEvents';
 import type { ExamEventCreate, Status } from '../../types';
@@ -52,7 +54,7 @@ const attendance: [Status, string][] = [
 ];
 const editable = (status: Status) => attendance.some(([key]) => key === status);
 
-type Tab = 'sessions' | 'people';
+type Tab = 'sessions' | 'people' | 'variants';
 
 export function ExamEventDetail() {
   const { id } = useParams();
@@ -60,7 +62,8 @@ export function ExamEventDetail() {
   const { data, refresh } = useWorkspace();
   const [editing, setEditing] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
-  const [tab, setTab] = useState<Tab>('sessions');
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState<Tab>(params.get('tab') === 'variants' ? 'variants' : 'sessions');
   const [search, setSearch] = useState('');
   const [peopleSearch, setPeopleSearch] = useState('');
   const [subject, setSubject] = useState('');
@@ -73,6 +76,7 @@ export function ExamEventDetail() {
       state: { backTo: `/exam-events/${id}`, backLabel: 'К списку пробника' },
     });
   const exams = data.exams.filter((e) => e.event_id === Number(id));
+  const eventVariants = useEventVariants(exams);
   if (!exams.length) return <EmptyState title="Пробник не найден" />;
   const info = summarize(exams, data.participations);
   const slots = [...info.slots].sort(
@@ -184,7 +188,9 @@ export function ExamEventDetail() {
   const tabs: [Tab, string][] = [
     ['sessions', 'Сеансы и явка'],
     ['people', `Участники · ${registrations.length}`],
+    ['variants', 'Варианты'],
   ];
+  const withVariants = eventVariants.rows.filter((row) => row.variants.length).length;
   return (
     <div className="ad-page">
       <div className="ad-head ad-event-head">
@@ -226,6 +232,11 @@ export function ExamEventDetail() {
         {tabs.map(([key, label]) => (
           <button type="button" role="tab" key={key} aria-selected={tab === key} onClick={() => setTab(key)}>
             {label}
+            {key === 'variants' && eventVariants.loaded && (
+              <span className={`ad-tab-badge ${withVariants === exams.length ? 'is-done' : ''}`}>
+                {withVariants} из {exams.length}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -425,6 +436,15 @@ export function ExamEventDetail() {
             />
           </div>
         </>
+      )}
+
+      {tab === 'variants' && (
+        <EventVariants
+          rows={eventVariants.rows}
+          loaded={eventVariants.loaded}
+          error={eventVariants.error}
+          onChange={eventVariants.reload}
+        />
       )}
 
       {editing && (

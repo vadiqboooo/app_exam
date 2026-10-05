@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   CalendarDays,
@@ -6,10 +6,12 @@ import {
   LayoutDashboard,
   School,
   BarChart3,
+  BookOpen,
   LogOut,
   GraduationCap,
   HelpCircle,
 } from 'lucide-react';
+import { api } from '../api/client';
 import type { Session } from '../types';
 import { Button } from '../components/Button';
 
@@ -35,9 +37,26 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
   const { pathname } = useLocation();
   const [topbarSlot, setTopbarSlot] = useState<HTMLElement | null>(null);
   const eventPage = pathname.startsWith('/exam-events/') || pathname.startsWith('/school');
-  const groupsPage = pathname === '/groups';
+  const myGroupsPage = pathname === '/my-groups';
+  const groupsPage = pathname === '/groups' || myGroupsPage;
   const inGroups = groupsPage || pathname.startsWith('/groups/');
-  const groupsTitle = session.role === 'teacher' ? 'Мои группы' : 'Группы';
+  const groupsTitle = session.role === 'teacher' || myGroupsPage ? 'Мои группы' : 'Группы';
+  // Whoever teaches gets the teacher's tabs, whatever other roles they hold.
+  const teaches = session.role === 'teacher' || !!session.teacherId;
+  // «Предметы» appears only while an administrator keeps the teacher responsible for a subject.
+  const [responsible, setResponsible] = useState(false);
+  useEffect(() => {
+    if (!teaches) return;
+    api.subjects
+      .mine()
+      .then((subjects) => setResponsible(subjects.length > 0))
+      .catch(() => setResponsible(false));
+  }, [teaches, session.token]);
+  const staffRoles = session.roles?.map((role) => roleNames[role]).join(' · ');
+  const roleLabel =
+    session.role === 'teacher' && responsible
+      ? 'Учитель · ответственный'
+      : (staffRoles ?? roleNames[session.role]);
   const nav =
     session.role === 'student'
       ? [
@@ -48,11 +67,16 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
         ? [
             { to: '/groups', title: 'Мои группы', icon: Users },
             { to: '/results', title: 'Результаты', icon: BarChart3 },
+            ...(responsible ? [{ to: '/subjects', title: 'Предметы', icon: BookOpen }] : []),
           ]
         : [
             { to: '/', title: 'Главная', icon: LayoutDashboard },
             { to: '/exams', title: 'Пробники', icon: CalendarDays },
             { to: '/results', title: 'Результаты', icon: BarChart3 },
+            ...(session.teacherId ? [{ to: '/my-groups', title: 'Мои группы', icon: Users }] : []),
+            ...(session.teacherId && responsible
+              ? [{ to: '/subjects', title: 'Предметы', icon: BookOpen }]
+              : []),
             { to: '/school', title: 'Школа', icon: School },
           ];
   const staff = session.role === 'admin' || session.role === 'responsible';
@@ -72,7 +96,8 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
       <TopbarSlotContext.Provider value={topbarSlot}>
         <div
           className={`app-shell role-${session.role} ${
-            (session.role === 'teacher' && (pathname === '/results' || pathname === '/results/new')) ||
+            (session.role === 'teacher' &&
+              (pathname === '/results' || pathname === '/results/new' || pathname.startsWith('/subjects'))) ||
             (staff &&
               (pathname === '/' ||
                 pathname === '/exams' ||
@@ -80,6 +105,7 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
                 pathname === '/results' ||
                 pathname === '/results/new' ||
                 pathname.startsWith('/school') ||
+                pathname.startsWith('/subjects') ||
                 pathname.startsWith('/exam-events/')))
               ? 'admin-bare'
               : ''
@@ -103,7 +129,7 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
               <span className="avatar">{initials(session.name)}</span>
               <span className="mobile-account-name">
                 {session.name}
-                <small>{roleNames[session.role]}</small>
+                <small>{roleLabel}</small>
               </span>
               <Button variant="ghost" aria-label="Выйти" title="Выйти" onClick={logout}>
                 <LogOut size={18} />
@@ -154,7 +180,7 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
                 </span>
               )}
               <div className="account">
-                <span className="role-pill">{roleNames[session.role]}</span>
+                <span className="role-pill">{staffRoles ?? roleNames[session.role]}</span>
                 <span className="avatar">{initials(session.name)}</span>
                 <span className="account-name">{session.name}</span>
                 <Button variant="ghost" aria-label="Выйти" title="Выйти" onClick={logout}>

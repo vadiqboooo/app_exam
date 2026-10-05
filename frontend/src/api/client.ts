@@ -16,10 +16,15 @@ import type {
   Session,
   Status,
   Student,
+  StudentCandidate,
   StudentParticipation,
   StudentsStep,
+  SubjectContentWrite,
   SubjectSetting,
   SubjectSettingWrite,
+  SubjectVariant,
+  ParentStatus,
+  StaffRole,
   Teacher,
   TeacherWrite,
   TeachersStep,
@@ -28,7 +33,7 @@ import type {
 export type CodeStep = { status: 'code_new' | 'code_required' };
 export type StudentLoginResult = CodeStep | { status: 'ok'; token: string; student: Student };
 export type TeacherLoginResult =
-  CodeStep | { status: 'ok'; token: string; teacher: { id: number; name: string } };
+  CodeStep | { status: 'ok'; token: string; teacher: { id: number; name: string; roles: StaffRole[] } };
 
 let token = '';
 export function setApiToken(value: string) {
@@ -89,6 +94,10 @@ export const api = {
   session: () => request('/session'),
   students: {
     list: () => all<Student>('/students'),
+    search: (query: string, examId?: number) =>
+      request<StudentCandidate[]>(
+        `/students/search?q=${encodeURIComponent(query)}${examId ? `&exam_id=${examId}` : ''}`,
+      ),
     resetCode: (id: number) => request<Student>(`/students/${id}/reset-code`, { method: 'POST' }),
     unlock: (id: number) => request<Student>(`/students/${id}/unlock`, { method: 'POST' }),
   },
@@ -97,12 +106,52 @@ export const api = {
     list: () => all<Teacher>('/teachers'),
     create: (data: TeacherWrite) => request<Teacher>('/teachers', json('POST', data)),
     update: (id: number, data: TeacherWrite) => request<Teacher>(`/teachers/${id}`, json('PUT', data)),
+    setRoles: (id: number, roles: StaffRole[]) =>
+      request<Teacher>(`/teachers/${id}/roles`, json('PUT', { roles })),
     delete: (id: number) => request<{ ok: boolean }>(`/teachers/${id}`, { method: 'DELETE' }),
     resetCode: (id: number) => request<Teacher>(`/teachers/${id}/reset-code`, { method: 'POST' }),
     unlock: (id: number) => request<Teacher>(`/teachers/${id}/unlock`, { method: 'POST' }),
   },
   subjects: {
     list: () => all<SubjectSetting>('/subjects'),
+    mine: () => request<SubjectSetting[]>('/subjects/mine'),
+    updateContent: (id: number, data: SubjectContentWrite) =>
+      request<SubjectSetting>(`/subjects/${id}/content`, json('PUT', data)),
+    variants: {
+      list: (id: number) => request<SubjectVariant[]>(`/subjects/${id}/variants`),
+      upload: (id: number, files: File[], eventIds: number[] = []) => {
+        const body = new FormData();
+        for (const file of files) body.append('files', file);
+        for (const eventId of eventIds) body.append('event_ids', String(eventId));
+        return request<SubjectVariant[]>(`/subjects/${id}/variants`, { method: 'POST', body });
+      },
+      setEvents: (variantId: number, event_ids: number[]) =>
+        request<SubjectVariant>(`/subjects/variants/${variantId}/events`, json('PUT', { event_ids })),
+      rename: (variantId: number, name: string) =>
+        request<SubjectVariant>(`/subjects/variants/${variantId}`, json('PATCH', { name })),
+      replace: (variantId: number, file: File) => {
+        const body = new FormData();
+        body.append('file', file);
+        return request<SubjectVariant>(`/subjects/variants/${variantId}/file`, { method: 'PUT', body });
+      },
+      remove: (variantId: number) =>
+        request<{ ok: boolean }>(`/subjects/variants/${variantId}`, { method: 'DELETE' }),
+      blob: async (variant: SubjectVariant) => {
+        const response = await fetch(`/api/subjects/variants/${variant.id}/download`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!response.ok) throw new Error('Не удалось скачать файл');
+        return response.blob();
+      },
+      download: async (variant: SubjectVariant) => {
+        const url = URL.createObjectURL(await api.subjects.variants.blob(variant));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = variant.filename;
+        link.click();
+        URL.revokeObjectURL(url);
+      },
+    },
     create: (data: SubjectSettingWrite) => request<SubjectSetting>('/subjects', json('POST', data)),
     update: (id: number, data: SubjectSettingWrite) =>
       request<SubjectSetting>(`/subjects/${id}`, json('PUT', data)),
@@ -133,6 +182,10 @@ export const api = {
       request<Participation>(`/participations/${id}/result`, json('PUT', data)),
     publish: (id: number, data: ResultWrite) =>
       request<Participation>(`/participations/${id}/publish`, json('POST', data)),
+    saveFeedback: (
+      participation_ids: number[],
+      data: { feedback?: string | null; parent_status?: ParentStatus },
+    ) => request<Participation[]>('/participations/feedback', json('PUT', { participation_ids, ...data })),
   },
   examEvents: {
     create: (data: ExamEventCreate) => request<ExamEvent>('/exam-events', json('POST', data)),
