@@ -1,5 +1,6 @@
-import type { Exam, ParentStatus, Participation, Student, Workspace } from '../types';
+import type { Exam, Group, Membership, ParentStatus, Participation, Student, Workspace } from '../types';
 import { groupExams } from './format';
+import { belongsToSubject } from './groupExam';
 
 export interface EventResult {
   key: string;
@@ -71,6 +72,66 @@ export function buildStudentResults(data: Workspace): StudentResults[] {
         : [];
     })
     .sort((a, b) => a.student.full_name.localeCompare(b.student.full_name, 'ru'));
+}
+
+export interface GroupTask {
+  code: string;
+  max: number;
+  score: number | null;
+  covered: boolean;
+}
+export interface GroupBlock {
+  subject: string;
+  group: string;
+  tasks: GroupTask[];
+  coveredCount: number;
+  /** Points earned and available on the tasks the group has covered / not covered yet. */
+  inCovered: { got: number; max: number };
+  outOfCovered: { got: number; max: number };
+}
+
+/**
+ * For each work of the event: the student's group on that subject and how the student did on the
+ * tasks the group has already covered compared with the rest.
+ */
+export function groupBlocks(
+  event: EventResult,
+  studentId: number,
+  groups: Group[],
+  memberships: Membership[],
+): GroupBlock[] {
+  const own = groups.filter(
+    (group) =>
+      group.is_active &&
+      memberships.some((m) => m.student_id === studentId && m.group_id === group.id && !m.ended_at),
+  );
+  return event.items.flatMap(({ exam, participation }) => {
+    const group = own.find((candidate) => belongsToSubject(exam, candidate.subject));
+    const tasks = exam.structure_data?.tasks ?? [];
+    if (!group || !tasks.length) return [];
+    const covered = new Set(group.coverage.find((item) => item.exam_id === exam.id)?.task_codes);
+    const scores = new Map(participation.result_data?.tasks.map((task) => [task.code, task.score]));
+    const rows = tasks.map((task) => ({
+      code: task.code,
+      max: task.max_score,
+      score: scores.get(task.code) ?? null,
+      covered: covered.has(task.code),
+    }));
+    const sum = (list: GroupTask[]) => ({
+      got: list.reduce((total, task) => total + (task.score ?? 0), 0),
+      max: list.reduce((total, task) => total + task.max, 0),
+    });
+    return [
+      {
+        subject: exam.subject,
+        group: group.source_name,
+        tasks: rows,
+        coveredCount: rows.filter((task) => task.covered).length,
+        inCovered: sum(rows.filter((task) => task.covered)),
+        outOfCovered: sum(rows.filter((task) => !task.covered)),
+      },
+    ];
+  });
 }
 
 /** Test score of the same subject in the nearest earlier event, to show the change. */

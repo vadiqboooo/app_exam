@@ -1,4 +1,10 @@
 import type {
+  BackupObject,
+  BackupState,
+  LegacyFiles,
+  YandexState,
+  FolderState,
+  WebDavState,
   Exam,
   ExamCreate,
   ExamEvent,
@@ -63,6 +69,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
           : `Не удалось выполнить запрос (${response.status})`,
     );
   }
+  if (response.status === 204) return undefined as T;
   return response.json();
 }
 
@@ -92,6 +99,37 @@ const importForm = <T>(path: string, parts: Record<string, File | string | undef
 
 export const api = {
   session: () => request('/session'),
+  backups: {
+    state: () => request<BackupState>('/backups'),
+    create: () => request<BackupObject>('/backups', { method: 'POST' }),
+    connectDrive: (folder_url: string) =>
+      request<{ url: string }>('/backups/drive', json('POST', { folder_url })),
+    restore: (name: string) =>
+      request<{ restored: string; safety_copy: string }>('/backups/restore', json('POST', { name })),
+    legacyFiles: () => request<LegacyFiles>('/backups/legacy'),
+    downloadFile: async (name: string) => {
+      const response = await fetch(`/api/backups/files/${encodeURIComponent(name)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      }).catch(() => {
+        throw new Error('Не удалось связаться с сервером. Проверьте, что приложение запущено.');
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(
+          typeof error.detail === 'string' ? error.detail : `Не удалось взять файл (${response.status})`,
+        );
+      }
+      return response.blob();
+    },
+    connectYandex: (token: string) => request<YandexState>('/backups/yandex', json('POST', { token })),
+    disconnectYandex: () => request<void>('/backups/yandex', { method: 'DELETE' }),
+    connectFolder: (path: string) => request<FolderState>('/backups/folder', json('POST', { path })),
+    disconnectFolder: () => request<void>('/backups/folder', { method: 'DELETE' }),
+    connectWebdav: (login: string, password: string, folder: string) =>
+      request<WebDavState>('/backups/webdav', json('POST', { login, password, folder })),
+    disconnectWebdav: () => request<void>('/backups/webdav', { method: 'DELETE' }),
+    disconnectDrive: () => request<void>('/backups/drive', { method: 'DELETE' }),
+  },
   students: {
     list: () => all<Student>('/students'),
     search: (query: string, examId?: number) =>
@@ -101,7 +139,14 @@ export const api = {
     resetCode: (id: number) => request<Student>(`/students/${id}/reset-code`, { method: 'POST' }),
     unlock: (id: number) => request<Student>(`/students/${id}/unlock`, { method: 'POST' }),
   },
-  groups: { list: () => all<Group>('/groups') },
+  groups: {
+    list: () => all<Group>('/groups'),
+    saveCoverage: (groupId: number, examId: number, task_codes: string[]) =>
+      request<{ exam_id: number; task_codes: string[] }>(
+        `/groups/${groupId}/coverage/${examId}`,
+        json('PUT', { task_codes }),
+      ),
+  },
   teachers: {
     list: () => all<Teacher>('/teachers'),
     create: (data: TeacherWrite) => request<Teacher>('/teachers', json('POST', data)),

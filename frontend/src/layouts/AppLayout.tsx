@@ -14,6 +14,8 @@ import {
 import { api } from '../api/client';
 import type { Session } from '../types';
 import { Button } from '../components/Button';
+import { useHalloween } from '../halloween/theme';
+import { HalloweenShell } from './HalloweenShell';
 
 export const roleNames = {
   admin: 'Администратор',
@@ -36,6 +38,7 @@ export const useTopbarSlot = () => useContext(TopbarSlotContext);
 export function AppLayout({ session, logout }: { session: Session; logout: () => void }) {
   const { pathname } = useLocation();
   const [topbarSlot, setTopbarSlot] = useState<HTMLElement | null>(null);
+  const halloween = useHalloween();
   const eventPage = pathname.startsWith('/exam-events/') || pathname.startsWith('/school');
   const myGroupsPage = pathname === '/my-groups';
   const groupsPage = pathname === '/groups' || myGroupsPage;
@@ -91,6 +94,8 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
         )
         .sort((a, b) => b.to.length - a.to.length)[0]
     : undefined;
+  // A student who used the magic gets the Halloween cabinet; staff screens never change.
+  if (session.role === 'student' && halloween) return <HalloweenShell session={session} logout={logout} />;
   return (
     <SectionTitleContext.Provider value={section?.title ?? null}>
       <TopbarSlotContext.Provider value={topbarSlot}>

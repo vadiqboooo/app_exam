@@ -2,7 +2,14 @@ import { useState } from 'react';
 import { api } from '../api/client';
 import type { ParentStatus } from '../types';
 import { useAction } from '../hooks/useAction';
-import { buildStudentResults, previousScore, type EventResult } from '../lib/studentResults';
+import { useWorkspace } from '../layouts/Workspace';
+import {
+  buildStudentResults,
+  groupBlocks,
+  previousScore,
+  type EventResult,
+  type GroupBlock,
+} from '../lib/studentResults';
 import { score } from '../lib/format';
 import { plural } from '../lib/adminEvents';
 import { ErrorNotice } from './ErrorNotice';
@@ -34,15 +41,20 @@ const notes: Record<ParentStatus, string> = {
   got: 'Родитель получил результаты и комментарий.',
 };
 
+const scoreTone = (score: number | null, max: number) =>
+  score === null ? 'none' : score === max ? 'full' : score === 0 ? 'zero' : 'part';
+
 function Feedback({
   person,
   event,
   index,
+  blocks,
   onSaved,
 }: {
   person: Person;
   event: EventResult;
   index: number;
+  blocks: GroupBlock[];
   onSaved: () => Promise<void>;
 }) {
   const [text, setText] = useState(event.comment);
@@ -82,8 +94,80 @@ function Feedback({
           })}
         </div>
       </div>
+      {blocks.length ? (
+        <div className="rbs-section">
+          <span className="rbs-label">2 · Задания и материал, пройденный группой к этому пробнику</span>
+          {blocks.map((block) => (
+            <div className="rbs-group" key={`${block.subject}:${block.group}`}>
+              <div className="rbs-group-head">
+                <span>
+                  <strong>{block.subject}</strong>
+                  <em>группа {block.group}</em>
+                </span>
+                <small>
+                  К пробнику группа прошла{' '}
+                  <b>
+                    {block.coveredCount} из {block.tasks.length}
+                  </b>{' '}
+                  заданий
+                </small>
+              </div>
+              <div className="rbs-chips">
+                {block.tasks.map((task) => (
+                  <span
+                    key={task.code}
+                    className={task.covered ? 'is-covered' : ''}
+                    title={`Задание ${task.code}${task.covered ? ' · пройдено группой' : ' · ещё не проходили'} · ${
+                      task.score === null ? 'нет баллов' : `${task.score} из ${task.max}`
+                    }`}
+                  >
+                    <b>{task.code}</b>
+                    <i className={`is-${scoreTone(task.score, task.max)}`}>
+                      {task.score === null ? '—' : `${task.score}/${task.max}`}
+                    </i>
+                  </span>
+                ))}
+              </div>
+              <div className="rbs-group-sum">
+                <span>
+                  По пройденным:{' '}
+                  <b>
+                    {block.inCovered.got} из {block.inCovered.max} б.
+                  </b>
+                </span>
+                <span>
+                  По остальным:{' '}
+                  <b>
+                    {block.outOfCovered.got} из {block.outOfCovered.max} б.
+                  </b>
+                </span>
+                {block.outOfCovered.got > 0 && <em>Решил(а) задания, которые группа ещё не проходила</em>}
+                {block.coveredCount === 0 && <em>Преподаватель ещё не отметил пройденные задания</em>}
+              </div>
+            </div>
+          ))}
+          <div className="rbs-legend">
+            <span>
+              <i className="is-covered" />
+              пройдено группой к пробнику
+            </span>
+            <span>
+              <i />
+              ещё не проходили
+            </span>
+            <b className="is-full">верно</b>
+            <b className="is-part">частично</b>
+            <b className="is-zero">0 баллов</b>
+          </div>
+        </div>
+      ) : (
+        <div className="rbs-nogroup">
+          2 · Ученик не состоит в группе по предметам этого пробника, поэтому пройденные задания не
+          выделяются.
+        </div>
+      )}
       <div className="rbs-section">
-        <span className="rbs-label">2 · Что сказать ученику и родителю</span>
+        <span className="rbs-label">3 · Что сказать ученику и родителю</span>
         <textarea
           rows={4}
           aria-label="Комментарий к пробнику"
@@ -116,7 +200,7 @@ function Feedback({
         </div>
       </div>
       <div className={`rbs-parent is-${status}`}>
-        <span className="rbs-label">3 · Родителю</span>
+        <span className="rbs-label">4 · Родителю</span>
         <div className="rbs-parent-row">
           <ol>
             {steps.map(([key, label], i) => (
@@ -165,6 +249,7 @@ export function ResultsByStudent({
   onOnlyPending: (value: boolean) => void;
   onSaved: () => Promise<void>;
 }) {
+  const { data } = useWorkspace();
   const [selectedId, setSelectedId] = useState<number>();
   const [eventKeys, setEventKeys] = useState<Record<number, string>>({});
   const shown = onlyPending ? people.filter((person) => person.pending) : people;
@@ -252,6 +337,7 @@ export function ResultsByStudent({
             person={person}
             event={event}
             index={index}
+            blocks={groupBlocks(event, person.student.id, data.groups, data.memberships)}
             onSaved={onSaved}
           />
         </section>

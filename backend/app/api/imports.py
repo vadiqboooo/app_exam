@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Form, Request, UploadFile
 from pydantic import Field, TypeAdapter, ValidationError
 
+from app.api.backups import backup_state
 from app.api.dependencies import ReadSession, require_admin
 from app.database import transaction
 from app.importers.excel import read_excel
@@ -110,7 +111,7 @@ def run_preview(
     students: UploadFile | None = None,
     legacy: UploadFile | None = None,
 ):
-    return _run(
+    result = _run(
         request,
         teachers=teachers,
         groups=groups,
@@ -118,6 +119,8 @@ def run_preview(
         legacy=legacy,
         confirmation=None,
     )
+    # The last cloud backup is what the school falls back to if the import goes wrong.
+    return {**result, "backup": backup_state(request)}
 
 
 @router.post("/run/apply")

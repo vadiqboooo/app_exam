@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ArrowLeft, ArrowRight, Briefcase, ChevronRight, GraduationCap } from 'lucide-react';
+import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { api, saveSession, setApiToken } from '../api/client';
 import type { Role, Session } from '../types';
 import { useAction } from '../hooks/useAction';
@@ -7,6 +7,9 @@ import { Button } from '../components/Button';
 import { ErrorNotice } from '../components/ErrorNotice';
 import { CodeInput } from '../components/CodeInput';
 import { roleNames } from '../layouts/AppLayout';
+import { LoginChoice } from '../halloween/LoginChoice';
+import { CREDIT } from '../halloween/Art';
+import { useHalloween } from '../halloween/theme';
 
 type Door = 'choose' | 'student' | 'staff';
 // name: имя; code: вход с личным кодом; create: первый вход, придумывание кода.
@@ -42,6 +45,7 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
   const [code, setCode] = useState('');
   const [repeat, setRepeat] = useState('');
   const { busy, error, run, clearError } = useAction();
+  const halloween = useHalloween();
   useEffect(() => {
     if (error) {
       setCode('');
@@ -110,52 +114,11 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
   }
 
   if (door === 'choose')
-    return (
-      <div className="lg-page">
-        <section className="lg-side lg-side-purple">
-          <Brand />
-          <div className="lg-pitch">
-            <span className="lg-eyebrow">ПРОБНЫЕ ЭКЗАМЕНЫ ОГЭ И ЕГЭ</span>
-            <h1>Пробник как настоящий экзамен. Результат — с разбором.</h1>
-          </div>
-          <span />
-        </section>
-        <section className="lg-main">
-          <div className="lg-panel lg-panel-wide">
-            <div className="lg-title">
-              <h2>Войти в кабинет</h2>
-              <p>Кто вы?</p>
-            </div>
-            <div className="lg-doors">
-              <button type="button" className="lg-door" onClick={() => open('student')}>
-                <span className="lg-door-icon">
-                  <GraduationCap size={28} strokeWidth={1.8} />
-                </span>
-                <span className="lg-door-text">
-                  <strong>Я ученик</strong>
-                  <span>Записаться на пробник и смотреть результаты</span>
-                </span>
-                <ArrowRight size={22} />
-              </button>
-              <button type="button" className="lg-door" onClick={() => open('staff')}>
-                <span className="lg-door-icon lg-door-icon-slate">
-                  <Briefcase size={28} strokeWidth={1.8} />
-                </span>
-                <span className="lg-door-text">
-                  <strong>Я сотрудник</strong>
-                  <span>Явка, проверка работ и баллы учеников</span>
-                </span>
-                <ArrowRight size={22} />
-              </button>
-            </div>
-          </div>
-        </section>
-      </div>
-    );
+    return <LoginChoice onStudent={() => open('student')} onStaff={() => open('staff')} />;
 
   const student = door === 'student';
   return (
-    <div className="lg-page">
+    <div className={`lg-page${halloween && student ? ' lg-hw' : ''}`}>
       {student ? (
         <section className="lg-side lg-side-purple">
           <Brand />
@@ -349,6 +312,7 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
           </p>
         </form>
       </section>
+      {halloween && student && <p className="lg-credit">{CREDIT}</p>}
     </div>
   );
 }

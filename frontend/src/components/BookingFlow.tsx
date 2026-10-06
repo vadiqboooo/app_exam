@@ -7,6 +7,8 @@ import { useAction } from '../hooks/useAction';
 import { registrationState } from '../lib/format';
 import { Button } from './Button';
 import { ErrorNotice } from './ErrorNotice';
+import { Booked } from '../halloween/Booked';
+import { useHalloween } from '../halloween/theme';
 
 const dayLabel = (value: string) =>
   new Intl.DateTimeFormat('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' })
@@ -34,6 +36,7 @@ const uniqueSchools = (exam: Exam) => [...new Map(exam.slots.map((slot) => [slot
 
 export function BookingFlow({ exams, onClose }: { exams: Exam[]; onClose: () => void }) {
   const { data, refresh } = useStudentWorkspace();
+  const halloween = useHalloween();
   const formats = [...new Set(exams.map((exam) => exam.format!))];
   const preferred = data.student.grade && data.student.grade <= 9 ? 'oge' : 'ege';
   const [format, setFormat] = useState(formats.includes(preferred) ? preferred : formats[0]);
@@ -74,6 +77,26 @@ export function BookingFlow({ exams, onClose }: { exams: Exam[]; onClose: () => 
     }
   };
 
+  if (done && halloween)
+    return (
+      <Booked
+        format={done.exam.format}
+        title={title}
+        subject={done.exam.subject}
+        startsAt={done.slot.starts_at}
+        school={done.slot.school_name}
+        address={done.slot.school_address}
+        closes={
+          exams[0].registration_close_at
+            ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(
+                new Date(exams[0].registration_close_at),
+              )
+            : undefined
+        }
+        onHome={onClose}
+        onAgain={reset}
+      />
+    );
   if (done)
     return (
       <div className="bf bf-done">

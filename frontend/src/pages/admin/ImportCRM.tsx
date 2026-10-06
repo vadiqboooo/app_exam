@@ -1,4 +1,5 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { CheckCircle2, FileText, UploadCloud } from 'lucide-react';
 import { api } from '../../api/client';
 import type {
@@ -13,7 +14,10 @@ import { useWorkspace } from '../../layouts/Workspace';
 import { useAction } from '../../hooks/useAction';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { ErrorNotice } from '../../components/ErrorNotice';
+import { BackupCheck } from './Backups';
 import { plural } from '../../lib/adminEvents';
+import { backupTime, fileSize } from '../../lib/backup';
+import { useLoad } from '../../hooks/useLoad';
 
 type Key = 'legacy' | 'teachers' | 'groups' | 'students';
 type Tone = 'ok' | 'add' | 'warn' | 'upd';
@@ -24,11 +28,12 @@ type Previews = {
   students?: StudentsStep;
 };
 
+const loadLegacyFiles = () => api.backups.legacyFiles();
 const order: Key[] = ['legacy', 'teachers', 'groups', 'students'];
 const config: Record<Key, { title: string; idle: string; upload: string; hint: string; accept: string }> = {
   legacy: {
     title: 'Прошлая версия',
-    idle: 'Если раньше работали в старой версии — загрузите её копию, чтобы вернуть прошлые работы',
+    idle: 'Если раньше работали в старой версии — возьмите её копию с подключённого диска, чтобы вернуть прошлые работы',
     upload: 'Загрузить файл прошлой версии',
     hint: 'Резервная копия старой базы: пробники, работы и баллы учеников',
     accept: '.db,.sqlite,.sqlite3',
@@ -161,6 +166,10 @@ export function ImportCRM() {
   const [result, setResult] = useState<ImportRun>();
   const [confirming, setConfirming] = useState(false);
   const [success, setSuccess] = useState('');
+  const disk = useLoad(loadLegacyFiles);
+  const diskChecked = useRef(false);
+  const [restoreName, setRestoreName] = useState<string | null>(null);
+  const [restoredFrom, setRestoredFrom] = useState('');
 
   const preview = (key: Key, file: File, all: Partial<Record<Key, File>>) => {
     if (key === 'legacy') return api.import.legacy(file);
@@ -169,11 +178,12 @@ export function ImportCRM() {
     return api.import.students(file, all.groups);
   };
 
-  const upload = (key: Key, file: File) => {
+  const upload = (key: Key, source: File | (() => Promise<File>)) => {
     clearError();
     setSuccess('');
     setResult(undefined);
     void run(async () => {
+      const file = typeof source === 'function' ? await source() : source;
       const nextFiles = { ...files, [key]: file };
       const nextPreviews: Previews = { ...previews, [key]: await preview(key, file, nextFiles) };
       // Later steps depend on the earlier files (teachers resolve groups, groups resolve pupils).
@@ -190,7 +200,18 @@ export function ImportCRM() {
     });
   };
 
+  // The previous version's database is taken from the connected disk instead of the computer.
+  const fromDisk = (name: string) =>
+    upload(
+      'legacy',
+      async () =>
+        new File([await api.backups.downloadFile(name)], name.replace(/\.gz$/i, ''), {
+          type: 'application/octet-stream',
+        }),
+    );
+
   const clear = (key: Key) => {
+    if (key === 'legacy') setRestoredFrom('');
     setFiles((prev) => ({ ...prev, [key]: undefined }));
     setPreviews((prev) => ({ ...prev, [key]: undefined }));
     setDone((prev) => prev.filter((step) => step < order.indexOf(key)));
@@ -219,6 +240,31 @@ export function ImportCRM() {
     setCur(1);
   };
 
+  // A copy of the app is the previous version too: the whole database comes back from it.
+  const restoreFromCopy = () => {
+    const name = restoreName;
+    if (!name) return;
+    setRestoreName(null);
+    clearError();
+    setSuccess('');
+    void run(async () => {
+      await api.backups.restore(name);
+      await refresh();
+      clear('legacy');
+      setSkipped(true);
+      setRestoredFrom(name);
+      setDone((prev) => (prev.includes(0) ? prev : [...prev, 0]));
+      setCur(1);
+    });
+  };
+
+  useEffect(() => {
+    if (diskChecked.current || !disk.data) return;
+    diskChecked.current = true;
+    const { configured, error, files: found } = disk.data;
+    if (!configured || (!error && found.length === 0)) skipLegacy();
+  }, [disk.data]);
+
   const apply = () => {
     if (!result) return;
     setConfirming(false);
@@ -231,6 +277,7 @@ export function ImportCRM() {
       setFiles({});
       setPreviews({});
       setSkipped(false);
+      setRestoredFrom('');
       setResult(undefined);
     });
   };
@@ -325,7 +372,13 @@ export function ImportCRM() {
   const doneSub = (key: Key): string => {
     if (key === 'legacy') {
       const p = previews.legacy;
-      return skipped || !p ? 'Пропущено — прошлой версии нет' : `${files.legacy?.name} · ${p.works} работ`;
+      return restoredFrom
+        ? `Восстановлено из копии ${restoredFrom}`
+        : skipped || !p
+          ? disk.data?.configured === false
+            ? 'Пропущено — диск не подключён'
+            : 'Пропущено — прошлой версии нет'
+          : `${files.legacy?.name} · ${p.works} работ`;
     }
     return chipsFor(key)
       .map((chip) => chip.text)
@@ -361,35 +414,106 @@ export function ImportCRM() {
         editLabel={key === 'legacy' ? 'Изменить' : 'Изменить файл'}
         onEdit={() => setCur(index)}
       >
-        <input
-          ref={(node) => {
-            inputs.current[key] = node;
-          }}
-          type="file"
-          accept={cfg.accept}
-          hidden
-          aria-label={`Файл: ${cfg.title}`}
-          disabled={busy}
-          onChange={(event) => {
-            const picked = event.target.files?.[0];
-            if (picked) upload(key, picked);
-          }}
-        />
+        {key !== 'legacy' && (
+          <input
+            ref={(node) => {
+              inputs.current[key] = node;
+            }}
+            type="file"
+            accept={cfg.accept}
+            hidden
+            aria-label={`Файл: ${cfg.title}`}
+            disabled={busy}
+            onChange={(event) => {
+              const picked = event.target.files?.[0];
+              if (picked) upload(key, picked);
+            }}
+          />
+        )}
         {!file ? (
           <>
-            <button
-              type="button"
-              className="imp-drop"
-              disabled={busy}
-              onClick={() => inputs.current[key]?.click()}
-            >
-              <UploadCloud size={22} />
-              <strong>{busy ? 'Читаем файл…' : cfg.upload}</strong>
-              <span>{cfg.hint}</span>
-            </button>
-            {key === 'legacy' && (
-              <button type="button" className="imp-skip" disabled={busy} onClick={skipLegacy}>
-                Прошлой версии нет — пропустить
+            {key === 'legacy' ? (
+              <>
+                {disk.error ? (
+                  <div className="imp-disk">
+                    <p className="imp-text">Не удалось связаться с диском: {disk.error}</p>
+                    <button type="button" className="imp-skip" onClick={() => void disk.refresh()}>
+                      Повторить
+                    </button>
+                  </div>
+                ) : !disk.data ? (
+                  <p className="imp-text">Читаем диск…</p>
+                ) : disk.data.configured ? (
+                  <div className="imp-disk">
+                    <strong>С подключённого диска</strong>
+                    {disk.data.error ? (
+                      <p className="imp-text">Не удалось прочитать диск: {disk.data.error}</p>
+                    ) : disk.data.files.length === 0 ? (
+                      <p className="imp-text">Копий и файлов прошлой версии на диске нет.</p>
+                    ) : (
+                      <p className="imp-text">
+                        «Копия приложения» восстанавливает всю базу целиком (сначала на сервере сохраняется
+                        страховочная копия текущей). «Старая программа» переносит прошлые работы из базы
+                        прежней версии.
+                      </p>
+                    )}
+                    {disk.data.files.map((item) => (
+                      <div className="imp-disk-row" key={item.name}>
+                        <span>
+                          <b>{item.name}</b>
+                          <small>
+                            {backupTime(item.created)} · {fileSize(item.size)}
+                          </small>
+                        </span>
+                        <div className="imp-disk-actions">
+                          <span className={`imp-badge imp-tone-${item.current ? 'upd' : 'add'}`}>
+                            {item.current ? 'Копия приложения' : 'Старая программа'}
+                          </span>
+                          <button
+                            type="button"
+                            className={item.current ? 'is-restore' : ''}
+                            disabled={busy}
+                            onClick={() => (item.current ? setRestoreName(item.name) : fromDisk(item.name))}
+                          >
+                            {item.current ? 'Восстановить' : 'Выбрать'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="imp-skip"
+                      disabled={disk.loading}
+                      onClick={() => void disk.refresh()}
+                    >
+                      {disk.loading ? 'Читаем диск…' : 'Обновить список'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="imp-disk">
+                    <p className="imp-text">
+                      Диск не подключён. Подключите его на вкладке «Резервные копии»: там же делаются копии и
+                      откуда берётся прошлая версия.
+                    </p>
+                    <Link to="/school/backups" className="imp-skip">
+                      Открыть «Резервные копии»
+                    </Link>
+                  </div>
+                )}
+                <button type="button" className="imp-skip" disabled={busy} onClick={skipLegacy}>
+                  Прошлой версии нет — пропустить
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="imp-drop"
+                disabled={busy}
+                onClick={() => inputs.current[key]?.click()}
+              >
+                <UploadCloud size={22} />
+                <strong>{busy ? 'Читаем файл…' : cfg.upload}</strong>
+                <span>{cfg.hint}</span>
               </button>
             )}
           </>
@@ -525,6 +649,7 @@ export function ImportCRM() {
                   ))}
                 </div>
               )}
+              {result.backup && <BackupCheck state={result.backup} />}
               <div className="imp-final">
                 <span>Ничего не изменится, пока вы не нажмёте «Применить»</span>
                 <button
@@ -544,6 +669,17 @@ export function ImportCRM() {
           )}
         </StepCard>
       </div>
+      {restoreName && (
+        <ConfirmDialog
+          title="Восстановить базу из копии?"
+          text={`Все текущие данные (ученики, группы, пробники, результаты) будут заменены данными из копии ${restoreName}. Перед этим на сервере сохранится страховочная копия текущей базы. Затем импорт продолжится: загрузите учителей, группы и учеников.`}
+          confirm="Восстановить"
+          danger
+          busy={busy}
+          onClose={() => setRestoreName(null)}
+          onConfirm={restoreFromCopy}
+        />
+      )}
       {confirming && result && (
         <ConfirmDialog
           title="Применить импорт?"

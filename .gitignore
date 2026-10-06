@@ -15,3 +15,13 @@ test-results/
 playwright-report/
 frontend/tests/fixtures/
 Список.xlsx
+
+# Google OAuth / service account keys
+client_secret*.json
+*-key.json
+
+# deploy script defaults (no secrets, but personal)
+scripts/.deploy.json
+
+# TypeScript build cache
+*.tsbuildinfo

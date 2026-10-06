@@ -4,8 +4,16 @@ import { useStudentWorkspace } from '../../layouts/StudentWorkspace';
 import { EmptyState } from '../../components/EmptyState';
 import { date, examDate, examTitle, score } from '../../lib/format';
 import { resultScoreLabel } from '../../lib/scoring';
+import { useHalloween } from '../../halloween/theme';
+import { HalloweenResult } from './HalloweenResult';
 
 export function ResultDetail() {
+  const halloween = useHalloween();
+  if (halloween) return <HalloweenResult />;
+  return <DefaultResult />;
+}
+
+function DefaultResult() {
   const { id } = useParams();
   const { data } = useStudentWorkspace();
   const result = data.results.find((item) => item.id === Number(id));

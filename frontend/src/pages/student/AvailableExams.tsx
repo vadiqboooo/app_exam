@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  ArrowLeft,
   ArrowRight,
   BookOpen,
   Building2,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useStudentWorkspace } from '../../layouts/StudentWorkspace';
 import { api } from '../../api/client';
+import type { Exam } from '../../types';
 import { examDate, examTitle, groupExams, registrationState, score } from '../../lib/format';
 import { useAction } from '../../hooks/useAction';
 import { Button } from '../../components/Button';
@@ -22,6 +24,10 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { BookingFlow } from '../../components/BookingFlow';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { SlotPicker } from '../../components/SlotPicker';
+import { HwBackdrop } from '../../halloween/Chrome';
+import { useHalloween } from '../../halloween/theme';
+import { dateRange } from '../../lib/adminEvents';
+import { HalloweenHome } from './HalloweenHome';
 
 const month = (value: string) =>
   new Intl.DateTimeFormat('ru-RU', { month: 'short' }).format(new Date(value)).replace('.', '').toUpperCase();
@@ -33,6 +39,7 @@ const time = (value: string) =>
 
 export function AvailableExams() {
   const { data, refresh } = useStudentWorkspace();
+  const halloween = useHalloween();
   const [bookingOpen, setBookingOpen] = useState(false);
   const [bookingIndex, setBookingIndex] = useState(0);
   const [editingParticipationId, setEditingParticipationId] = useState<number | null>(null);
@@ -69,7 +76,12 @@ export function AvailableExams() {
         item !== null && new Date(item.startsAt).getTime() > Date.now(),
     )
     .sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
-  const selectedGroup = bookableGroups[Math.min(bookingIndex, bookableGroups.length - 1)];
+  // Registering the last free subject empties the list; the flow must stay to show its final screen.
+  const lastGroup = useRef<Exam[]>(undefined);
+  const selectedGroup =
+    bookableGroups[Math.min(bookingIndex, bookableGroups.length - 1)] ??
+    (bookingOpen ? lastGroup.current : undefined);
+  if (selectedGroup) lastGroup.current = selectedGroup;
   const deletingRegistration = schedule.find(
     ({ participation }) => participation.id === deletingParticipationId,
   );
@@ -154,6 +166,131 @@ export function AvailableExams() {
         !data.results.some((result) => result.id === item.id),
     )
     .flatMap((item) => data.exams.filter((exam) => exam.id === item.exam_id));
+
+  const deleteDialog = deletingRegistration && (
+    <ConfirmDialog
+      title="Удалить запись?"
+      text={`Запись на «${deletingRegistration.exam.subject}» будет удалена, а место снова станет свободным.`}
+      confirm="Удалить запись"
+      danger
+      busy={action.busy}
+      error={action.error}
+      onClose={() => setDeletingParticipationId(null)}
+      onConfirm={() =>
+        void action.run(async () => {
+          await api.student.cancelRegistration(deletingRegistration.participation.id);
+          await refresh();
+          setDeletingParticipationId(null);
+        })
+      }
+    />
+  );
+
+  if (halloween) {
+    const heroGroup = bookableGroups[0];
+    const times = heroGroup?.flatMap((exam) => exam.slots.map((slot) => slot.starts_at)).sort() ?? [];
+    const closes = heroGroup?.[0].registration_close_at;
+    const hero =
+      canBook && heroGroup && times.length
+        ? {
+            title: examTitle(heroGroup[0]),
+            subjects: heroGroup.length,
+            schools: new Set(heroGroup.flatMap((exam) => exam.slots.map((slot) => slot.school_id))).size,
+            range: dateRange(times[0], times[times.length - 1]),
+            closes: closes
+              ? new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(new Date(closes))
+              : undefined,
+          }
+        : null;
+    const editing = schedule.find(({ participation }) => participation.id === editingParticipationId);
+    const startEdit = (participationId: number) => {
+      const item = schedule.find(({ participation }) => participation.id === participationId);
+      if (!item?.slot) return;
+      action.clearError();
+      setBookingOpen(false);
+      setEditSlotId(String(item.slot.id));
+      setEditingParticipationId(participationId);
+    };
+    return (
+      <>
+        {bookingOpen && selectedGroup ? (
+          <div className="hw-booking-screen">
+            <HwBackdrop />
+            <ErrorNotice message={action.error} />
+            {bookingPanel}
+          </div>
+        ) : editing?.slot ? (
+          <div className="hw-booking-screen hw-edit">
+            <HwBackdrop />
+            <div className="hw-edit-head">
+              <button
+                type="button"
+                aria-label="Назад к пробникам"
+                onClick={() => setEditingParticipationId(null)}
+              >
+                <ArrowLeft size={20} />
+              </button>
+              <div>
+                <strong>Изменение записи</strong>
+                <small>
+                  {editing.exam.subject} · {examTitle(editing.exam)}
+                </small>
+              </div>
+            </div>
+            <ErrorNotice message={action.error} />
+            <SlotPicker
+              key={editing.participation.id}
+              slots={editing.exam.slots}
+              value={editSlotId}
+              onChange={setEditSlotId}
+              disabled={action.busy}
+              variant="cards"
+              currentSlotId={editing.slot.id}
+              stepStart={1}
+            />
+            <div className="hw-edit-actions">
+              <button type="button" disabled={action.busy} onClick={() => setEditingParticipationId(null)}>
+                Отмена
+              </button>
+              <button
+                type="button"
+                className="is-primary"
+                disabled={action.busy || !editSlotId || Number(editSlotId) === editing.participation.slot_id}
+                onClick={() =>
+                  void action.run(async () => {
+                    await api.student.updateRegistration(editing.participation.id, Number(editSlotId));
+                    await refresh();
+                    setEditingParticipationId(null);
+                  })
+                }
+              >
+                Сохранить изменения
+              </button>
+            </div>
+          </div>
+        ) : (
+          <HalloweenHome
+            student={data.student}
+            schedule={schedule}
+            hero={hero}
+            results={latest.slice(0, 3)}
+            reviewing={reviewing}
+            error={action.error}
+            onBook={() => {
+              setBookingIndex(0);
+              setBookingOpen(true);
+            }}
+            onEdit={startEdit}
+            onCancel={(participationId) => {
+              action.clearError();
+              setDeletingParticipationId(participationId);
+            }}
+          />
+        )}
+        {deleteDialog}
+      </>
+    );
+  }
 
   if (bookingOpen && selectedGroup)
     return (
@@ -444,24 +581,7 @@ export function AvailableExams() {
         </section>
       )}
 
-      {deletingRegistration && (
-        <ConfirmDialog
-          title="Удалить запись?"
-          text={`Запись на «${deletingRegistration.exam.subject}» будет удалена, а место снова станет свободным.`}
-          confirm="Удалить запись"
-          danger
-          busy={action.busy}
-          error={action.error}
-          onClose={() => setDeletingParticipationId(null)}
-          onConfirm={() =>
-            void action.run(async () => {
-              await api.student.cancelRegistration(deletingRegistration.participation.id);
-              await refresh();
-              setDeletingParticipationId(null);
-            })
-          }
-        />
-      )}
+      {deleteDialog}
     </div>
   );
 }

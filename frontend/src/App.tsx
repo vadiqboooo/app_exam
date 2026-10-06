@@ -21,6 +21,7 @@ import { GroupDetail } from './pages/teacher/GroupDetail';
 import { AvailableExams } from './pages/student/AvailableExams';
 import { MyResults } from './pages/student/MyResults';
 import { ResultDetail } from './pages/student/ResultDetail';
+import { HalloweenBall } from './pages/student/HalloweenBall';
 
 export default function App() {
   const [session, setSession] = useState(loadSession);
@@ -62,6 +63,7 @@ export default function App() {
               <Route path="/available" element={<AvailableExams />} />
               <Route path="/my-results" element={<MyResults />} />
               <Route path="/my-results/:id" element={<ResultDetail />} />
+              <Route path="/my-results/:id/ball" element={<HalloweenBall />} />
             </Route>
           ) : (
             <Route

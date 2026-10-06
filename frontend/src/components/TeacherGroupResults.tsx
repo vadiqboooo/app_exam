@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowDown, ArrowLeft, ChevronDown, ChevronUp, MessageCircle, Send, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, Check, ChevronDown, ChevronUp, MessageCircle, Send, X } from 'lucide-react';
 import type { Exam, Group, Participation, Student, Task } from '../types';
 import { api } from '../api/client';
 import { date, examDate, examSubject, examTitle, score } from '../lib/format';
 import { examsForGroup } from '../lib/groupExam';
 import { automaticScore } from '../lib/scoring';
-import { plural } from '../lib/adminEvents';
 import { useAction } from '../hooks/useAction';
 import { Button } from './Button';
 import { ConfirmDialog } from './ConfirmDialog';
+import { CoverageDialog } from './CoverageDialog';
 import { EmptyState } from './EmptyState';
 import { ErrorNotice } from './ErrorNotice';
 import { StatusBadge } from './StatusBadge';
@@ -36,6 +36,7 @@ function ResultEditor({
   exam,
   item,
   tasks,
+  covered,
   onSaved,
   onNext,
 }: {
@@ -43,6 +44,8 @@ function ResultEditor({
   exam: Exam;
   item?: Participation;
   tasks: Task[];
+  /** Codes of the tasks the group has already covered for this exam. */
+  covered: Set<string>;
   onSaved: () => Promise<void>;
   onNext?: () => void;
 }) {
@@ -120,6 +123,7 @@ function ResultEditor({
       )}
       <div className="tg-editor-label">
         Баллы по заданиям <span>· Tab — к следующему заданию</span>
+        {covered.size > 0 && <span> · фиолетовым — задания, пройденные группой к этому пробнику</span>}
       </div>
       <div className="tg-task-grid">
         {tasks.map((task, index) => {
@@ -127,7 +131,9 @@ function ResultEditor({
           const filled = value?.score !== null && value?.score !== undefined;
           return (
             <div className="tg-task" key={task.code}>
-              <span className="tg-task-code">{task.code}</span>
+              <span className={covered.has(task.code) ? 'tg-task-code is-covered' : 'tg-task-code'}>
+                {task.code}
+              </span>
               <input
                 aria-label={`Балл за задание ${task.code} — ${student.full_name}`}
                 type="number"
@@ -295,11 +301,16 @@ export function TeacherGroupResults({
   const [examId, setExamId] = useState(available[0]?.id ?? 0);
   const [filter, setFilter] = useState<Filter>('all');
   const [openId, setOpenId] = useState<number | null>(null);
-  const [slotFilter, setSlotFilter] = useState<'all' | 'none' | number>('all');
+  const [covOpen, setCovOpen] = useState(false);
   const [publishingAll, setPublishingAll] = useState(false);
   const bulk = useAction();
   const exam = available.find((candidate) => candidate.id === examId) ?? available[0];
   const tasks = exam?.structure_data?.tasks ?? [];
+  // What the group has covered, per exam; the previous exam of the subject can seed the marks.
+  const coverageOf = (examIdToFind?: number) =>
+    group.coverage.find((item) => item.exam_id === examIdToFind)?.task_codes ?? [];
+  const covered = coverageOf(exam?.id);
+  const previousExam = available[available.findIndex((candidate) => candidate.id === exam?.id) + 1];
   useEffect(() => {
     if (!available.some((candidate) => candidate.id === examId)) setExamId(available[0]?.id ?? 0);
   }, [available, examId]);
@@ -314,41 +325,16 @@ export function TeacherGroupResults({
     ),
   }));
   const enrolled = rows.filter((row) => row.item);
-  const came = enrolled.filter((row) => row.item?.status !== 'absent');
   const checked = rows.filter((row) => row.item?.status === 'checked');
   const published = rows.filter((row) => row.item?.status === 'published');
   const empty = rows.filter((row) => row.item?.status !== 'absent' && !isFinal(row.item));
-  const inSlot = (row: Row) =>
-    slotFilter === 'all' || (slotFilter === 'none' ? !row.item : row.item?.slot_id === slotFilter);
   const visible = rows.filter(
     (row) =>
-      inSlot(row) &&
-      (filter === 'all' ||
-        (filter === 'empty' && row.item?.status !== 'absent' && !isFinal(row.item)) ||
-        (filter === 'checked' && row.item?.status === 'checked') ||
-        (filter === 'published' && row.item?.status === 'published')),
+      filter === 'all' ||
+      (filter === 'empty' && row.item?.status !== 'absent' && !isFinal(row.item)) ||
+      (filter === 'checked' && row.item?.status === 'checked') ||
+      (filter === 'published' && row.item?.status === 'published'),
   );
-  const sessions: { key: 'all' | 'none' | number; title: string; when: string; count: number }[] = [
-    { key: 'all', title: 'Все ученики', when: 'Вся группа', count: rows.length },
-    ...(exam?.slots ?? [])
-      .map((slot) => ({
-        key: slot.id,
-        title: slot.school_name,
-        when: shortDate(slot.starts_at),
-        count: rows.filter((row) => row.item?.slot_id === slot.id).length,
-      }))
-      .filter((session) => session.count > 0),
-    ...(rows.some((row) => !row.item)
-      ? [
-          {
-            key: 'none' as const,
-            title: 'Не записаны',
-            when: 'Нужно записать',
-            count: rows.filter((row) => !row.item).length,
-          },
-        ]
-      : []),
-  ];
   // The pupil's registrations for the whole event, so other subjects are visible too.
   const registrations = (student: Student, item?: Participation) => {
     const chips = [];
@@ -372,13 +358,6 @@ export function TeacherGroupResults({
     ['empty', 'Не внесены', empty.length],
     ['checked', 'Проверено', checked.length],
     ['published', 'Опубликовано', published.length],
-  ];
-  const stats: [string, number][] = [
-    ['Записаны', enrolled.length],
-    ['Пришли', came.length],
-    ['Баллы не внесены', empty.length],
-    ['Проверено', checked.length],
-    ['Опубликовано', published.length],
   ];
 
   const publishChecked = () =>
@@ -455,49 +434,25 @@ export function TeacherGroupResults({
         />
       ) : (
         <>
-          <div className="tg-stats">
-            {stats.map(([label, value]) => (
-              <div key={label}>
-                <span>
-                  {label === 'Баллы не внесены' ? (
-                    <>
-                      <em className="tg-lg">{label}</em>
-                      <em className="tg-sm">Не внесены</em>
-                    </>
-                  ) : (
-                    label
-                  )}
-                </span>
-                <strong>{value}</strong>
-              </div>
-            ))}
-          </div>
-          <section className="tg-sessions" aria-label="Куда записаны ученики">
-            <div className="tg-sessions-head">
-              <h2>Куда записаны ученики</h2>
-              <span>Сеансы по предмету группы · нажмите, чтобы показать только их учеников</span>
-            </div>
-            <div className="tg-sessions-grid">
-              {sessions.map((session) => (
-                <button
-                  type="button"
-                  key={session.key}
-                  aria-pressed={slotFilter === session.key}
-                  className={session.key === 'none' ? 'is-none' : undefined}
-                  onClick={() => {
-                    setSlotFilter(session.key);
-                    setOpenId(null);
-                  }}
-                >
-                  <strong>{session.title}</strong>
-                  <span>{session.when}</span>
-                  <b>
-                    {session.count}{' '}
-                    <small>{plural(session.count, 'ученик', 'ученика', 'учеников').split(' ')[1]}</small>
-                  </b>
-                </button>
-              ))}
-            </div>
+          <section className="tg-coverage" aria-label="Пройденные задания группы">
+            <span className="tg-coverage-icon">
+              <Check size={20} />
+            </span>
+            <span className="tg-coverage-text">
+              <strong>Пройденные задания</strong>
+              <small>
+                К пробнику «{examTitle(exam)}» · группа прошла{' '}
+                <b>
+                  {covered.length} из {tasks.length}
+                </b>
+              </small>
+            </span>
+            <span className="tg-coverage-bar" aria-hidden="true">
+              <span style={{ width: `${tasks.length ? (covered.length / tasks.length) * 100 : 0}%` }} />
+            </span>
+            <button type="button" aria-haspopup="dialog" onClick={() => setCovOpen(true)}>
+              Отметить задания
+            </button>
           </section>
           <div className="tg-toolbar">
             <div className="tg-tabs" role="tablist" aria-label="Фильтр учеников">
@@ -596,6 +551,7 @@ export function TeacherGroupResults({
                       exam={exam}
                       item={item}
                       tasks={tasks}
+                      covered={new Set(covered)}
                       onSaved={onSaved}
                       onNext={nextRow ? () => setOpenId(nextRow.student.id) : undefined}
                     />
@@ -605,6 +561,20 @@ export function TeacherGroupResults({
             })}
           </div>
         </>
+      )}
+      {covOpen && exam && (
+        <CoverageDialog
+          groupName={group.source_name}
+          examTitle={`${examTitle(exam)} · ${longDay(examDate(exam))}`}
+          tasks={tasks}
+          covered={covered}
+          previous={coverageOf(previousExam?.id)}
+          onClose={() => setCovOpen(false)}
+          onSave={async (codes) => {
+            await api.groups.saveCoverage(group.id, exam.id, codes);
+            await onSaved();
+          }}
+        />
       )}
       {publishingAll && (
         <ConfirmDialog

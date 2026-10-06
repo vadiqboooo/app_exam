@@ -43,6 +43,8 @@ export interface Group {
   exam_format: 'ege' | 'oge' | null;
   teacher_id: number | null;
   is_active: boolean;
+  /** Tasks of each exam the group has already covered in class. */
+  coverage: { exam_id: number; task_codes: string[] }[];
 }
 export interface Teacher {
   id: number;
@@ -262,9 +264,59 @@ export interface LegacyStep {
   works: number;
   students: number;
 }
+export interface BackupObject {
+  name: string;
+  size: number;
+  created: string;
+}
+export interface LegacyFile extends BackupObject {
+  /** A copy of the current version: shown, but it cannot be chosen as the previous one. */
+  current: boolean;
+}
+export interface LegacyFiles {
+  configured: boolean;
+  files: LegacyFile[];
+  error?: string;
+}
+export interface BackupState {
+  configured: boolean;
+  bucket?: string | null;
+  latest?: BackupObject | null;
+  stale?: boolean;
+  backups?: BackupObject[];
+  /** The cloud could not be asked; the import itself is not blocked. */
+  error?: string;
+  drive?: DriveState;
+  webdav?: WebDavState;
+  folder?: FolderState;
+  yandex?: YandexState;
+}
+export interface YandexState {
+  connected: boolean;
+  where: string | null;
+  /** The Yandex OAuth app id set on the server; when present the person need not type it. */
+  client_id: string | null;
+}
+export interface FolderState {
+  connected: boolean;
+  path: string | null;
+}
+export interface WebDavState {
+  connected: boolean;
+  host: string | null;
+  folder: string | null;
+}
+export interface DriveState {
+  client_configured: boolean;
+  connected: boolean;
+  folder_name: string | null;
+  /** The address to register in the Google OAuth client. */
+  redirect_uri: string;
+}
 export interface ImportRun {
   confirmation: string;
   applied: boolean;
+  backup?: BackupState;
   warnings: { n: string; text: string }[];
   report: {
     teachers: { total: number; new: number } | null;

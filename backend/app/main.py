@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.api import (
+    backups,
     exam_events,
     exams,
     groups,
@@ -22,6 +23,7 @@ from app.api import (
 from app.api.dependencies import require_operator
 from app.config import STATIC_ROOT, Settings
 from app.database import make_engine
+from app.services.drive_connection import Flows
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -35,7 +37,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Пробник API", version="0.1.0", lifespan=lifespan)
     app.state.settings, app.state.engine = settings, engine
+    app.state.backup_store = None  # tests put a fake store here; otherwise it follows the settings
+    app.state.drive_flows = Flows()
     for module in (
+        backups,
         students,
         groups,
         subjects,
@@ -47,6 +52,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         memberships,
     ):
         app.include_router(module.router, prefix="/api", dependencies=[Depends(require_operator)])
+    app.include_router(backups.callback_router)
     app.include_router(student_portal.router)
     app.include_router(teacher_portal.router)
 

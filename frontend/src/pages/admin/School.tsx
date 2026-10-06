@@ -1,4 +1,5 @@
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Backups } from './Backups';
 import { ImportCRM } from './ImportCRM';
 import { SubjectEditPage } from './SubjectEditPage';
 import { Teachers } from './Teachers';
@@ -12,6 +13,7 @@ const tabs = [
   { to: '/school/teachers', title: 'Сотрудники' },
   { to: '/school/subjects', title: 'Предметы' },
   { to: '/school/import', title: 'Импорт CRM' },
+  { to: '/school/backups', title: 'Резервные копии' },
 ];
 
 export function School() {
@@ -33,6 +35,7 @@ export function School() {
         <Route path="students" element={<Students />} />
         <Route path="groups" element={<SchoolGroups />} />
         <Route path="import" element={<ImportCRM />} />
+        <Route path="backups" element={<Backups />} />
         <Route path="teachers" element={<Teachers />} />
         <Route path="subjects" element={<Subjects />} />
         <Route path="subjects/:id" element={<SubjectEditPage />} />

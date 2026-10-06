@@ -8,6 +8,7 @@ from app.models import (
     ExamEvent,
     ExamSchool,
     ExamSlot,
+    GroupCoverage,
     Participation,
     Subject,
     VariantEvent,
@@ -241,6 +242,7 @@ def update_event(event_id: int, data: EventCreate, session: WriteSession):
     if removed_school_ids:
         session.execute(delete(ExamSchool).where(ExamSchool.id.in_(removed_school_ids)))
     if removed_exam_ids:
+        session.execute(delete(GroupCoverage).where(GroupCoverage.exam_id.in_(removed_exam_ids)))
         session.execute(delete(Exam).where(Exam.id.in_(removed_exam_ids)))
     session.flush()
     return {"id": event.id, "title": event.title, "exam_ids": [exam.id for exam in kept_exams]}
@@ -252,6 +254,7 @@ def delete_event(event_id: int, session: WriteSession):
     exam_ids = select(Exam.id).where(Exam.event_id == event_id)
     slot_ids = select(ExamSlot.id).where(ExamSlot.event_id == event_id)
     session.execute(delete(VariantEvent).where(VariantEvent.event_id == event_id))
+    session.execute(delete(GroupCoverage).where(GroupCoverage.exam_id.in_(exam_ids)))
     session.execute(delete(Participation).where(Participation.exam_id.in_(exam_ids)))
     session.execute(delete(ExamSlot).where(ExamSlot.id.in_(slot_ids)))
     session.execute(delete(Exam).where(Exam.event_id == event_id))

@@ -4,6 +4,8 @@ import { ChevronRight, Hourglass } from 'lucide-react';
 import { useStudentWorkspace } from '../../layouts/StudentWorkspace';
 import { EmptyState } from '../../components/EmptyState';
 import { examDate, examTitle, score } from '../../lib/format';
+import { HwBackdrop, HwNav } from '../../halloween/Chrome';
+import { useHalloween } from '../../halloween/theme';
 
 const shortMonth = (value: string) =>
   new Intl.DateTimeFormat('ru-RU', { month: 'short' }).format(new Date(value)).replace('.', '');
@@ -14,6 +16,7 @@ const shortDay = (value: string) =>
 
 export function MyResults() {
   const { data } = useStudentWorkspace();
+  const halloween = useHalloween();
   const [subject, setSubject] = useState('');
   const results = data.results
     .flatMap((result) => {
@@ -34,7 +37,7 @@ export function MyResults() {
   const subjects = [...new Set([...results.map((r) => r.exam.subject), ...pending.map((e) => e.subject)])];
   const shown = subjects.filter((s) => !subject || s === subject);
 
-  return (
+  const page = (
     <div className="sr-page">
       <div className="sr-title">
         <h1>Мои результаты</h1>
@@ -118,7 +121,11 @@ export function MyResults() {
                 .slice()
                 .reverse()
                 .map(({ result, exam, at }) => (
-                  <Link key={result.id} to={`/my-results/${result.id}`} className="sr-row">
+                  <Link
+                    key={result.id}
+                    to={`/my-results/${result.id}${halloween ? '/ball' : ''}`}
+                    className="sr-row"
+                  >
                     <span>
                       <b>{examTitle(exam)}</b>
                       <small>
@@ -133,6 +140,14 @@ export function MyResults() {
           </section>
         );
       })}
+    </div>
+  );
+  if (!halloween) return page;
+  return (
+    <div className="hw-results-page">
+      <HwBackdrop />
+      <div className="hw-results-body">{page}</div>
+      <HwNav />
     </div>
   );
 }
