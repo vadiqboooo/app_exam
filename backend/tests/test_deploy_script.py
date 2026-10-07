@@ -89,7 +89,7 @@ def test_web_server_and_service_files(deploy):
     plain = deploy.render_nginx(None)
     assert "server_name _;" in plain and "proxy_pass http://127.0.0.1:8000;" in plain
     assert "client_max_body_size 50m;" in plain and "X-Forwarded-Proto $scheme" in plain
-    assert "server_name school.example.com _;" in deploy.render_nginx("school.example.com")
+    assert "server_name school.example.com;" in deploy.render_nginx("school.example.com")
     unit = deploy.render_unit()
     assert "--factory" in unit and "--host 127.0.0.1" in unit and "User=probnik" in unit
     assert "EnvironmentFile=/etc/probnik.env" in unit and "Restart=always" in unit
@@ -130,6 +130,8 @@ def config(deploy, **options):
         "yes": True,
         "skip_build": True,
         "restore_latest": False,
+        "action": "deploy",
+        "delete_data": False,
     }
     values.update(options)
     return deploy.Config(**values)
@@ -172,8 +174,8 @@ def test_dry_run_shows_every_step_and_leaks_nothing(deploy, monkeypatch, capsys)
     ]  # fmt: skip
     code, out = run(deploy, monkeypatch, capsys, extra)
     assert code == 0
-    for number in range(1, 11):
-        assert f"[{number}/10]" in out
+    for number in range(1, 13):
+        assert f"[{number}/12]" in out
     for expected in (
         "Настраиваю VPS",
         "Делаю развёртывание",
@@ -183,15 +185,16 @@ def test_dry_run_shows_every_step_and_leaks_nothing(deploy, monkeypatch, capsys)
         "certbot --nginx -d school.example.com",
         "/opt/probnik/backend/data/yandex.json",
         "Код доступа",
-        "ufw --force enable",
+        "policy-rc.d",
     ):
         assert expected in out
+    assert "ufw --force enable" not in out and "ufw enable" not in out  # never switched on here
     assert "secret-pass" not in out and "tok_SECRET" not in out
 
 
 def test_without_a_domain_there_is_no_https_step(deploy, monkeypatch, capsys):
     code, out = run(deploy, monkeypatch, capsys, [])
-    assert code == 0 and "[9/9]" in out and "[10/" not in out
+    assert code == 0 and "[11/11]" in out and "[12/" not in out
     assert "certbot" not in out and "uv run scripts/deploy.py --domain" in out
     assert "ID приложения Яндекса не указан" in out
 
