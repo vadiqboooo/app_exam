@@ -23,6 +23,7 @@ import base64
 import fnmatch
 import getpass
 import hashlib
+import http.server
 import ipaddress
 import json
 import os
@@ -35,8 +36,12 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
+import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -340,6 +345,147 @@ def build_frontend(root: Path, skip: bool) -> None:
             raise DeployError(f"`npm {' '.join(command)}` завершилась с ошибкой:\n{tail}")
 
 
+# ---------------------------------------------------------------- yandex token
+
+YANDEX_CALLBACK_PORT = 8765
+YANDEX_APP_HELP = """  ID приложения Яндекса нужен для бэкапов на Яндекс Диске. Где его взять:
+    1. Откройте https://oauth.yandex.ru/client/new и войдите в Яндекс.
+    2. Название любое. Платформа: «Веб-сервисы». Callback URL: добавьте ДВА адреса:
+         https://oauth.yandex.ru/verification_code
+         http://localhost:8765/
+    3. Права: «Яндекс.Диск REST API» → «Доступ к папке приложения».
+    4. Создайте приложение и скопируйте «ID приложения» (Client ID)."""
+
+# Yandex puts the token after a # in the address, which never reaches a server, so the page the
+# browser lands on reads it and hands it over.
+CATCH_PAGE = """<!doctype html><html lang="ru"><meta charset="utf-8"><title>Яндекс Диск</title>
+<body style="font-family:system-ui,sans-serif;max-width:34rem;margin:4rem auto;padding:0 1rem">
+<h2 id="message">Получаем токен…</h2>
+<script>
+const params = new URLSearchParams(location.hash.slice(1));
+const token = params.get('access_token');
+const message = document.getElementById('message');
+if (!token) {
+  const why = params.get('error_description') || 'вернитесь в терминал';
+  message.textContent = 'Токен не получен: ' + why;
+} else {
+  fetch('/token', { method: 'POST', body: token }).then(() => {
+    history.replaceState(null, '', '/');
+    message.textContent = 'Готово! Токен передан скрипту, эту вкладку можно закрыть.';
+  });
+}
+</script></body></html>"""
+
+
+def authorize_url(client_id: str, redirect_uri: str | None = None) -> str:
+    url = f"https://oauth.yandex.ru/authorize?response_type=token&client_id={client_id}"
+    if redirect_uri:
+        url += "&redirect_uri=" + urllib.parse.quote(redirect_uri, safe="")
+    return url
+
+
+class LocalServer(http.server.HTTPServer):
+    """A busy port must be reported as busy. Windows lets two programs share a port unless the
+    port is taken exclusively, so the catcher would otherwise wait for a token that never comes."""
+
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self) -> None:
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+class TokenCatcher:
+    """A tiny page on this computer that Yandex sends the browser back to. It listens on this
+    computer only and takes a single token, which it passes to the script."""
+
+    def __init__(self, port: int = YANDEX_CALLBACK_PORT):
+        self.token: str | None = None
+        catcher = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = CATCH_PAGE.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_POST(self):
+                size = int(self.headers.get("Content-Length") or 0)
+                value = self.rfile.read(min(size, 4096)).decode("utf-8", "ignore").strip()
+                if self.path == "/token" and re.fullmatch(r"[A-Za-z0-9_.\-]{20,}", value):
+                    catcher.token = value
+                    self.send_response(204)
+                else:
+                    self.send_response(400)
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        self.server = LocalServer(("127.0.0.1", port), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+
+    @property
+    def redirect_uri(self) -> str:
+        return f"http://localhost:{self.server.server_port}/"
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def stop(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+
+    def wait(self, timeout: float) -> str | None:
+        deadline = time.monotonic() + timeout
+        while self.token is None and time.monotonic() < deadline:
+            time.sleep(0.2)
+        return self.token
+
+
+def get_yandex_token(
+    client_id: str, *, port: int = YANDEX_CALLBACK_PORT, timeout: float = 180
+) -> str | None:
+    """Gets the Yandex token without copying: the browser is opened on Yandex's page and the token
+    comes back by itself. If that does not work, it can be pasted in by hand."""
+    say("\n  Чтобы бэкапы заработали сразу, нужен токен Яндекса.")
+    automatic = ask(
+        f"Получить его автоматически? В приложении должен быть Callback URL "
+        f"http://localhost:{port}/ [Y/n]",
+        default="y",
+        check=lambda value: value.lower() in {"y", "n", "д", "н", "да", "нет"},
+        error="Ответьте y или n",
+    )
+    if automatic.lower() in {"y", "д", "да"}:
+        try:
+            catcher = TokenCatcher(port)
+        except OSError:
+            say(paint(f"  Порт {port} занят, получим токен вручную.", "33"))
+        else:
+            catcher.start()
+            url = authorize_url(client_id, catcher.redirect_uri)
+            say("\n  Открываю браузер: войдите в Яндекс и нажмите «Разрешить». Токен вернётся сам.")
+            say(f"  Если окно не открылось, откройте ссылку:\n  {url}")
+            say("  (Ctrl+C — вставить токен вручную)")
+            webbrowser.open(url)
+            try:
+                token = catcher.wait(timeout)
+            except KeyboardInterrupt:
+                token = None
+            finally:
+                catcher.stop()
+            if token:
+                say(paint("  ✓ Токен получен.", "32"))
+                return token
+            say(paint("  Токен не пришёл, вставьте его вручную.", "33"))
+    say(f"\n  Откройте ссылку, разрешите доступ и скопируйте токен:\n  {authorize_url(client_id)}")
+    return ask("Токен Яндекса (Enter — пропустить, вставите его позже в приложении)", secret=True)
+
+
 # ---------------------------------------------------------------- settings
 
 
@@ -360,10 +506,12 @@ class Config:
     action: str  # deploy, stop, start or uninstall
     delete_data: bool
     app_port: int = DEFAULT_APP_PORT  # set from the plan once it is made
+    timeweb_token: str | None = None  # lets the script create the A record of the domain
+    replace_dns: bool = False  # replace a record that already points elsewhere
 
     @property
     def secrets(self) -> list[str]:
-        return [value for value in (self.password, self.yandex_token) if value]
+        return [v for v in (self.password, self.yandex_token, self.timeweb_token) if v]
 
 
 def load_state() -> dict:
@@ -408,6 +556,14 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--email", help="e-mail для сертификата Let's Encrypt")
     parser.add_argument("--yandex-client-id", help="ID приложения Яндекса (oauth.yandex.ru)")
     parser.add_argument("--yandex-token", help="токен Яндекса: бэкапы заработают сразу")
+    parser.add_argument(
+        "--timeweb-token", help="токен Timeweb Cloud: A-запись домена создаётся сама"
+    )
+    parser.add_argument(
+        "--replace-dns",
+        action="store_true",
+        help="заменить запись домена, если она уже указывает на другой адрес",
+    )
     parser.add_argument(
         "--yes", action="store_true", help="не задавать вопросов, взять всё из параметров"
     )
@@ -490,6 +646,7 @@ def collect(args: argparse.Namespace) -> Config:
 
     client_id = args.yandex_client_id
     if client_id is None and not args.yes:
+        say(YANDEX_APP_HELP)
         client_id = ask(
             "ID приложения Яндекса (Enter — пропустить, подключить позже)",
             default=state.get("yandex_client_id"),
@@ -502,14 +659,7 @@ def collect(args: argparse.Namespace) -> Config:
 
     token = args.yandex_token
     if token is None and client_id and not args.yes:
-        url = f"https://oauth.yandex.ru/authorize?response_type=token&client_id={client_id}"
-        say(
-            "\n  Чтобы бэкапы заработали сразу, откройте ссылку, разрешите доступ\n"
-            f"  и скопируйте токен:\n  {url}"
-        )
-        token = ask(
-            "Токен Яндекса (Enter — пропустить, вставите его позже в приложении)", secret=True
-        )
+        token = get_yandex_token(client_id)
     token = (token or "").strip() or None
 
     domain = args.domain
@@ -536,6 +686,14 @@ def collect(args: argparse.Namespace) -> Config:
     if domain and not email:
         raise DeployError("Для HTTPS нужен e-mail (параметр --email)")
 
+    timeweb_token = args.timeweb_token or os.environ.get("TIMEWEB_TOKEN") or None
+    if domain and timeweb_token is None and not args.yes:
+        say(TIMEWEB_HELP)
+        timeweb_token = (
+            ask("Токен Timeweb Cloud (Enter — пропустить, запись добавите сами)", secret=True)
+            or None
+        )
+
     return Config(
         host=host,
         port=args.port,
@@ -551,6 +709,8 @@ def collect(args: argparse.Namespace) -> Config:
         restore_latest=args.restore_latest,
         action="deploy",
         delete_data=False,
+        timeweb_token=timeweb_token,
+        replace_dns=args.replace_dns,
     )
 
 
@@ -842,6 +1002,171 @@ def describe(step: Step, probe: Probe, plan: Plan) -> None:
         step.note("файрвол ufw не включён: файрвол не трогаю")
 
 
+# ---------------------------------------------------------------- domain at Timeweb
+
+TIMEWEB_API = "https://api.timeweb.cloud/api/v1"
+TIMEWEB_HELP = """  Домен можно привязать к серверу сам: скрипт создаст A-запись в Timeweb Cloud.
+    1. Токен: https://timeweb.cloud/my/api-keys → «Создать токен» (название любое).
+    2. Домен должен быть добавлен в Timeweb Cloud (раздел «Домены») и использовать их DNS.
+  Без токена запись нужно добавить самому: тип A, имя вашего домена, значение IP сервера.
+  Скрипт подождёт, пока она заработает."""
+
+
+def timeweb_call(token: str, method: str, path: str, body: dict | None = None) -> dict:
+    request = urllib.request.Request(
+        TIMEWEB_API + path,
+        data=json.dumps(body).encode("utf-8") if body is not None else None,
+        method=method,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as reply:
+            raw = reply.read()
+    except urllib.error.HTTPError as error:
+        if error.code in (401, 403):
+            raise DeployError(
+                "Timeweb не принял токен: он неверный или без прав на домены"
+            ) from error
+        raise DeployError(f"Timeweb ответил ошибкой {error.code}") from error
+    except OSError as error:
+        raise DeployError(f"Не удалось связаться с Timeweb: {error}") from error
+    return json.loads(raw) if raw else {}
+
+
+def nested_dicts(value):
+    """Every object inside a JSON answer, so the code does not depend on how it is wrapped."""
+    if isinstance(value, dict):
+        yield value
+        for item in value.values():
+            yield from nested_dicts(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from nested_dicts(item)
+
+
+def timeweb_pages(token: str, path: str):
+    offset = 0
+    while True:
+        joiner = "&" if "?" in path else "?"
+        page = timeweb_call(token, "GET", f"{path}{joiner}limit=100&offset={offset}")
+        yield page
+        total = (page.get("meta") or {}).get("total")
+        offset += 100
+        if not total or offset >= total:
+            return
+
+
+def timeweb_zones(token: str) -> list[str]:
+    return [
+        item["fqdn"].lower()
+        for page in timeweb_pages(token, "/domains")
+        for item in nested_dicts(page)
+        if isinstance(item.get("fqdn"), str)
+    ]
+
+
+def timeweb_records(token: str, zone: str) -> list[dict]:
+    found = []
+    for page in timeweb_pages(token, f"/domains/{zone}/dns-records"):
+        for item in nested_dicts(page):
+            if "id" in item and "type" in item:
+                data = item["data"] if isinstance(item.get("data"), dict) else {}
+                found.append(
+                    {
+                        "id": item["id"],
+                        "type": str(item["type"]).upper(),
+                        "subdomain": item.get("subdomain", data.get("subdomain")) or "",
+                        "value": str(item.get("value", data.get("value")) or ""),
+                    }
+                )
+    return found
+
+
+def split_domain(name: str, zones: list[str]) -> tuple[str, str] | None:
+    """`exam.school.ru` -> (`school.ru`, `exam`): the longest of the account's domains that fits."""
+    name = name.lower()
+    best = None
+    for zone in zones:
+        if (name == zone or name.endswith("." + zone)) and (best is None or len(zone) > len(best)):
+            best = zone
+    if best is None:
+        return None
+    return best, name[: -len(best)].rstrip(".")
+
+
+def point_domain(token: str, domain: str, ip: str, confirm_replace) -> str:
+    """Makes `domain` an A record to `ip`. Another site's record is never replaced unasked."""
+    split = split_domain(domain, timeweb_zones(token))
+    if split is None:
+        raise DeployError(f"Домена {domain} нет в вашем аккаунте Timeweb Cloud (раздел «Домены»)")
+    zone, subdomain = split
+    records = [
+        record
+        for record in timeweb_records(token, zone)
+        if record["subdomain"] == subdomain and record["type"] in {"A", "CNAME"}
+    ]
+    if any(record["type"] == "A" and record["value"] == ip for record in records):
+        return f"A-запись {domain} уже указывает на {ip}"
+    if records:
+        shown = ", ".join(f"{record['type']} {record['value']}" for record in records)
+        if not confirm_replace(domain, shown, ip):
+            raise DeployError(f"{domain} уже указывает на {shown}: запись не заменена")
+        for record in records:
+            timeweb_call(token, "DELETE", f"/domains/{zone}/dns-records/{record['id']}")
+    body = {"type": "A", "value": ip}
+    if subdomain:
+        body["subdomain"] = subdomain
+    timeweb_call(token, "POST", f"/domains/{zone}/dns-records", body)
+    return f"создана A-запись {domain} → {ip}"
+
+
+def link_domain(cfg: Config, plan: Plan, step: Step) -> None:
+    manual = f"добавьте в DNS домена запись: тип A, имя {plan.domain}, значение {cfg.host}"
+    if not cfg.timeweb_token:
+        step.note(f"токена Timeweb нет: {manual}")
+        return
+    if cfg.dry_run:
+        step.note("(пробный запуск: запись в Timeweb пропущена)")
+        return
+
+    def confirm(domain: str, shown: str, ip: str) -> bool:
+        if cfg.replace_dns:
+            return True
+        if cfg.yes:
+            return False
+        say(paint(f"  Сейчас {domain} указывает на {shown}.", "33"))
+        return input(f"  Заменить на {ip}? [y/N]: ").strip().lower() in {"y", "yes", "д", "да"}
+
+    try:
+        step.note(point_domain(cfg.timeweb_token, plan.domain, cfg.host, confirm))
+    except DeployError as error:
+        step.note(paint(f"Timeweb: {error}", "33"))
+        step.note(manual)
+
+
+def wait_for_dns(
+    remote: Remote, cfg: Config, domain: str, step: Step, *, timeout: float = 600, interval=10
+) -> bool:
+    """Waits until the server itself sees the domain at its address: that is what the certificate
+    check will see too."""
+    if cfg.dry_run:
+        return True
+    command = f"getent ahostsv4 {shlex.quote(domain)} | awk '{{print $1; exit}}'"
+    deadline = time.monotonic() + timeout
+    announced = False
+    while True:
+        if remote.run(command, check=False).out.strip() == cfg.host:
+            return True
+        if not announced:
+            minutes = int(timeout // 60)
+            step.note(f"жду, пока {domain} начнёт указывать на {cfg.host} (до {minutes} мин)…")
+            announced = True
+        if time.monotonic() >= deadline:
+            step.note(paint(f"{domain} так и не стал указывать на {cfg.host}.", "33"))
+            return False
+        time.sleep(interval)
+
+
 # ---------------------------------------------------------------- steps
 
 
@@ -1016,16 +1341,16 @@ def configure_nginx(remote: Remote, plan: Plan) -> None:
 def enable_https(remote: Remote, cfg: Config, plan: Plan, step: Step) -> bool:
     """HTTPS is a bonus: if the domain does not point at the VPS yet, the app still works by IP."""
     assert plan.domain and cfg.email
+    link_domain(cfg, plan, step)
     try:
-        resolved = socket.gethostbyname(plan.domain)
-    except OSError:
-        resolved = ""
-    if resolved != cfg.host and not cfg.dry_run:
-        where = resolved or "никуда"
+        ready = wait_for_dns(remote, cfg, plan.domain, step)
+    except KeyboardInterrupt:
+        step.note(paint("Ожидание прервано.", "33"))
+        ready = False
+    if not ready:
         step.note(
-            paint(f"Домен {plan.domain} пока указывает на {where}, а не на {cfg.host}.", "33")
+            paint("Когда запись заработает, запустите скрипт ещё раз: HTTPS подключится.", "33")
         )
-        step.note(paint("Создайте A-запись домена на IP сервера и запустите скрипт ещё раз.", "33"))
         return False
     result = remote.run(
         f"certbot --nginx -d {shlex.quote(plan.domain)} --non-interactive --agree-tos "

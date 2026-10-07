@@ -152,6 +152,7 @@ def ask_first_time(args: argparse.Namespace, state: dict) -> tuple[dict, str | N
     first_run = "asked" not in state
     if first_run and not args.yes and args.yandex_client_id is None:
         deploy.say("Бэкапы на Яндекс Диске (можно пропустить и подключить позже в приложении).")
+        deploy.say(deploy.YANDEX_APP_HELP)
         client_id = (
             deploy.ask(
                 "ID приложения Яндекса (Enter — пропустить)",
@@ -161,9 +162,7 @@ def ask_first_time(args: argparse.Namespace, state: dict) -> tuple[dict, str | N
             or None
         )
         if client_id and token is None:
-            url = f"https://oauth.yandex.ru/authorize?response_type=token&client_id={client_id}"
-            deploy.say(f"\n  Откройте ссылку, разрешите доступ и скопируйте токен:\n  {url}")
-            token = deploy.ask("Токен Яндекса (Enter — пропустить)", secret=True)
+            token = deploy.get_yandex_token(client_id)
     if client_id and not deploy.valid_client_id(client_id):
         raise deploy.DeployError(
             "ID приложения Яндекса состоит из латинских букв и цифр (8-64 символа)"
