@@ -470,7 +470,9 @@ def get_yandex_token(
             url = authorize_url(client_id, catcher.redirect_uri)
             say("\n  Открываю браузер: войдите в Яндекс и нажмите «Разрешить». Токен вернётся сам.")
             say(f"  Если окно не открылось, откройте ссылку:\n  {url}")
-            say("  (Ctrl+C — вставить токен вручную)")
+            say("  Если Яндекс покажет ошибку про адрес возврата (redirect_uri, callback): в вашем")
+            say(f"  приложении другой Callback URL. Добавьте http://localhost:{port}/ в приложении")
+            say("  или нажмите Ctrl+C и вставьте токен вручную.")
             webbrowser.open(url)
             try:
                 token = catcher.wait(timeout)
@@ -1027,10 +1029,30 @@ def timeweb_call(token: str, method: str, path: str, body: dict | None = None) -
             raise DeployError(
                 "Timeweb не принял токен: он неверный или без прав на домены"
             ) from error
-        raise DeployError(f"Timeweb ответил ошибкой {error.code}") from error
+        detail = timeweb_reason(error)
+        raise DeployError(
+            f"Timeweb ответил ошибкой {error.code} ({method} {path})"
+            + (f": {detail}" if detail else "")
+        ) from error
     except OSError as error:
         raise DeployError(f"Не удалось связаться с Timeweb: {error}") from error
     return json.loads(raw) if raw else {}
+
+
+def timeweb_reason(error: urllib.error.HTTPError) -> str:
+    """What Timeweb says is wrong: a bare code does not tell the person what to fix."""
+    try:
+        text = error.read().decode("utf-8", "replace").strip()
+    except OSError:
+        return ""
+    try:
+        body = json.loads(text)
+    except ValueError:
+        return text[:200]
+    message = body.get("message") if isinstance(body, dict) else None
+    if isinstance(message, list):
+        message = "; ".join(str(item) for item in message)
+    return str(message or text)[:300]
 
 
 def nested_dicts(value):
@@ -1045,14 +1067,16 @@ def nested_dicts(value):
 
 
 def timeweb_pages(token: str, path: str):
+    """The answers page by page. The first request carries no paging parameters at all, so the
+    API's own defaults apply; later pages only say where to continue."""
     offset = 0
     while True:
-        joiner = "&" if "?" in path else "?"
-        page = timeweb_call(token, "GET", f"{path}{joiner}limit=100&offset={offset}")
+        page = timeweb_call(token, "GET", path if offset == 0 else f"{path}?offset={offset}")
         yield page
+        returned = sum(len(value) for value in page.values() if isinstance(value, list))
         total = (page.get("meta") or {}).get("total")
-        offset += 100
-        if not total or offset >= total:
+        offset += returned
+        if not returned or not total or offset >= total:
             return
 
 

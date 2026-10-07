@@ -28,7 +28,7 @@ class FakeTimeweb:
     def __call__(self, token, method, path, body=None):
         self.calls.append((method, path, body))
         assert token == "tw-token"
-        if method == "GET" and path.startswith("/domains?"):
+        if method == "GET" and path == "/domains":  # no paging parameters on the first request
             domains = [{"id": 1, "fqdn": zone} for zone in self.zones]
             return {"domains": domains, "meta": {"total": 1}}
         if method == "GET" and "/dns-records" in path:
@@ -173,9 +173,9 @@ def test_the_token_is_sent_as_a_bearer_and_hidden_from_errors(deploy, monkeypatc
         )()
 
     monkeypatch.setattr(deploy.urllib.request, "urlopen", reply)
-    deploy.timeweb_call("tw-secret", "GET", "/domains?limit=100&offset=0")
+    deploy.timeweb_call("tw-secret", "GET", "/domains")
     assert seen["auth"] == "Bearer tw-secret"
-    assert seen["url"] == "https://api.timeweb.cloud/api/v1/domains?limit=100&offset=0"
+    assert seen["url"] == "https://api.timeweb.cloud/api/v1/domains"
     assert "tw-secret" in make_config(deploy, timeweb_token="tw-secret").secrets
 
 
@@ -266,3 +266,50 @@ def test_the_token_can_come_from_the_environment(deploy, monkeypatch):
     cfg = deploy.collect(deploy.parse_args(ARGS))
     assert cfg.timeweb_token == "from-env" and cfg.replace_dns is False
     assert deploy.collect(deploy.parse_args(ARGS + ["--replace-dns"])).replace_dns is True
+
+
+def failing(code, body):
+    def reply(request, timeout=0):
+        raise urllib.error.HTTPError(request.full_url, code, "bad", {}, io.BytesIO(body))
+
+    return reply
+
+
+def test_a_400_says_which_request_failed_and_what_timeweb_wants(deploy, monkeypatch):
+    body = b'{"status_code":400,"message":["value must be an IP address","type is invalid"]}'
+    monkeypatch.setattr(deploy.urllib.request, "urlopen", failing(400, body))
+    with pytest.raises(deploy.DeployError) as caught:
+        deploy.timeweb_call("tw-token", "POST", "/domains/school.example/dns-records", {})
+    text = str(caught.value)
+    assert "400" in text and "POST /domains/school.example/dns-records" in text
+    assert "value must be an IP address; type is invalid" in text
+
+
+def test_an_answer_that_is_not_json_is_still_shown(deploy, monkeypatch):
+    monkeypatch.setattr(deploy.urllib.request, "urlopen", failing(400, b"Bad Request: nope"))
+    with pytest.raises(deploy.DeployError, match="Bad Request: nope"):
+        deploy.timeweb_call("tw-token", "GET", "/domains")
+    monkeypatch.setattr(deploy.urllib.request, "urlopen", failing(500, b""))
+    with pytest.raises(deploy.DeployError) as caught:
+        deploy.timeweb_call("tw-token", "GET", "/domains")
+    assert str(caught.value).endswith("(GET /domains)")  # nothing to add, nothing invented
+
+
+def test_long_lists_are_read_page_by_page_without_a_limit(deploy, monkeypatch):
+    asked = []
+    pages = {
+        "/domains": {
+            "domains": [{"fqdn": "a.example"}, {"fqdn": "b.example"}],
+            "meta": {"total": 3},
+        },
+        "/domains?offset=2": {"domains": [{"fqdn": "c.example"}], "meta": {"total": 3}},
+    }
+
+    def api(token, method, path, body=None):
+        asked.append(path)
+        return pages[path]
+
+    monkeypatch.setattr(deploy, "timeweb_call", api)
+    assert deploy.timeweb_zones("tw-token") == ["a.example", "b.example", "c.example"]
+    assert asked == ["/domains", "/domains?offset=2"]
+    assert all("limit" not in path for path in asked)  # the API's own page size is used

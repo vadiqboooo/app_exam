@@ -2474,3 +2474,20 @@ body:has(.lg-page.lg-hw) #root {
   color: var(--hw-muted);
   opacity: 0.8;
 }
+
+/* Empty states and panels of the shared components, which are white by default. */
+.hw-scope .panel {
+  border-color: var(--hw-line);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+}
+.hw-scope .empty-state h3 {
+  color: var(--hw-ink);
+}
+.hw-scope .empty-state p {
+  color: var(--hw-muted);
+}
+.hw-scope .empty-icon {
+  background: rgba(255, 122, 26, 0.16);
+  color: var(--hw-orange-soft);
+}
