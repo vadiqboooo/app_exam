@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, CheckConstraint, ForeignKey
+from sqlalchemy import JSON, CheckConstraint, ForeignKey, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -14,6 +14,7 @@ class StudyGroup(Base):
     exam_format: Mapped[str | None]
     teacher_id: Mapped[int | None] = mapped_column(ForeignKey("staff.id"))
     is_active: Mapped[bool] = mapped_column(default=True)
+    is_manually_archived: Mapped[bool] = mapped_column(default=False, server_default=false())
 
 
 class GroupCoverage(Base):

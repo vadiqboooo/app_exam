@@ -19,6 +19,7 @@ from app.api import (
     subjects,
     teacher_portal,
     teachers,
+    themes,
 )
 from app.api.dependencies import require_operator
 from app.config import STATIC_ROOT, Settings
@@ -45,6 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         groups,
         subjects,
         teachers,
+        themes,
         exams,
         exam_events,
         participations,
@@ -55,6 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(backups.callback_router)
     app.include_router(student_portal.router)
     app.include_router(teacher_portal.router)
+    app.include_router(themes.public_router)
 
     @app.get("/api/session", dependencies=[Depends(require_operator)])
     def operator_session():

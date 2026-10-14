@@ -11,6 +11,7 @@ class ExamEvent(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str]
+    theme_key: Mapped[str | None]
 
 
 class ExamSchool(Base):

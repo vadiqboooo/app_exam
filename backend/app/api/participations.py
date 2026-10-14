@@ -41,6 +41,7 @@ def require_teacher_student(session, student_id: int, current_teacher_id: int | 
                 Membership.ended_at.is_(None),
                 Membership.group_id == StudyGroup.id,
                 StudyGroup.teacher_id == current_teacher_id,
+                StudyGroup.is_active.is_(True),
             )
         )
     )
@@ -75,7 +76,9 @@ def require_teacher_access(
         exam_subject = _subject_key(exam.subject)
         subjects = session.scalars(
             select(StudyGroup.subject).where(
-                StudyGroup.teacher_id == current_teacher_id, StudyGroup.subject.is_not(None)
+                StudyGroup.teacher_id == current_teacher_id,
+                StudyGroup.is_active.is_(True),
+                StudyGroup.subject.is_not(None),
             )
         )
         for subject in subjects:
@@ -112,6 +115,7 @@ def list_participations(
             .where(
                 Membership.ended_at.is_(None),
                 StudyGroup.teacher_id == current_teacher_id,
+                StudyGroup.is_active.is_(True),
             )
         )
         teacher = session.get(Staff, current_teacher_id)

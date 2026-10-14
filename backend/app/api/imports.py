@@ -10,7 +10,13 @@ from app.api.backups import backup_state
 from app.api.dependencies import ReadSession, require_admin
 from app.database import transaction
 from app.importers.excel import read_excel
-from app.importers.school import read_groups, read_legacy, read_teachers
+from app.importers.school import (
+    combine_group_rosters,
+    read_group_roster,
+    read_groups,
+    read_legacy,
+    read_teachers,
+)
 from app.services.school_import import (
     groups_preview,
     legacy_summary,
@@ -48,6 +54,12 @@ def _groups_file(file: UploadFile | None):
     return read_groups(file.file) if file is not None else None
 
 
+def _rosters_files(files: list[UploadFile]):
+    if not files:
+        raise ValueError("Загрузите хотя бы один XLSX-файл")
+    return combine_group_rosters([read_group_roster(file.file) for file in files])
+
+
 @router.post("/teachers/preview")
 def teachers_step(file: UploadFile, session: ReadSession, groups: UploadFile | None = None):
     return teachers_preview(session, read_teachers(file.file), _groups_file(groups))
@@ -63,6 +75,17 @@ def students_step(file: UploadFile, session: ReadSession, groups: UploadFile | N
     return students_preview(session, read_excel(file.file), _groups_file(groups))
 
 
+@router.post("/rosters/preview")
+def rosters_step(files: list[UploadFile], session: ReadSession):
+    data = _rosters_files(files)
+    return {
+        "files": len(files),
+        "teachers": teachers_preview(session, list(data.teachers), list(data.groups)),
+        "groups": groups_preview(session, list(data.groups), list(data.teachers)),
+        "students": students_preview(session, list(data.students), list(data.groups)),
+    }
+
+
 @router.post("/legacy/analyze")
 def legacy_step(file: UploadFile):
     return legacy_summary(read_legacy(file.file.read()))
@@ -74,6 +97,7 @@ def _run(
     teachers: UploadFile | None,
     groups: UploadFile | None,
     students: UploadFile | None,
+    rosters: list[UploadFile] | None,
     legacy: UploadFile | None,
     confirmation: str | None,
 ):
@@ -87,15 +111,43 @@ def _run(
         )
         if file is not None
     }
+    roster_payloads = [
+        (file.filename or f"groups-{index + 1}.xlsx", file.file.read())
+        for index, file in enumerate(rosters or [])
+    ]
     hashes = {name: sha256(data).hexdigest() for name, data in payloads.items()}
+    hashes.update(
+        {
+            f"rosters:{index}:{filename}": sha256(data).hexdigest()
+            for index, (filename, data) in enumerate(roster_payloads)
+        }
+    )
+    roster_data = (
+        combine_group_rosters([read_group_roster(BytesIO(data)) for _, data in roster_payloads])
+        if roster_payloads
+        else None
+    )
+    old_parts = ("teachers", "groups", "students")
+    if roster_data is not None and any(name in payloads for name in old_parts):
+        raise ValueError("Новый файл групп нельзя смешивать со старыми файлами импорта")
     with transaction(request.app.state.engine, write=True) as session:
         return run_import(
             session,
-            teachers=read_teachers(BytesIO(payloads["teachers"]))
+            teachers=list(roster_data.teachers)
+            if roster_data is not None
+            else read_teachers(BytesIO(payloads["teachers"]))
             if "teachers" in payloads
             else None,
-            groups=read_groups(BytesIO(payloads["groups"])) if "groups" in payloads else None,
-            students=read_excel(BytesIO(payloads["students"])) if "students" in payloads else None,
+            groups=list(roster_data.groups)
+            if roster_data is not None
+            else read_groups(BytesIO(payloads["groups"]))
+            if "groups" in payloads
+            else None,
+            students=list(roster_data.students)
+            if roster_data is not None
+            else read_excel(BytesIO(payloads["students"]))
+            if "students" in payloads
+            else None,
             legacy=read_legacy(payloads["legacy"]) if "legacy" in payloads else None,
             today=utcnow().date(),
             hashes=hashes,
@@ -109,6 +161,7 @@ def run_preview(
     teachers: UploadFile | None = None,
     groups: UploadFile | None = None,
     students: UploadFile | None = None,
+    rosters: list[UploadFile] | None = None,
     legacy: UploadFile | None = None,
 ):
     result = _run(
@@ -116,6 +169,7 @@ def run_preview(
         teachers=teachers,
         groups=groups,
         students=students,
+        rosters=rosters,
         legacy=legacy,
         confirmation=None,
     )
@@ -130,6 +184,7 @@ def run_apply(
     teachers: UploadFile | None = None,
     groups: UploadFile | None = None,
     students: UploadFile | None = None,
+    rosters: list[UploadFile] | None = None,
     legacy: UploadFile | None = None,
 ):
     return _run(
@@ -137,6 +192,7 @@ def run_apply(
         teachers=teachers,
         groups=groups,
         students=students,
+        rosters=rosters,
         legacy=legacy,
         confirmation=confirmation,
     )

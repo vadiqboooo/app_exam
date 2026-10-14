@@ -10,6 +10,7 @@ import type {
   ExamEvent,
   ExamEventCreate,
   Group,
+  GroupWrite,
   GroupsStep,
   ImportPreview,
   ImportAnalysis,
@@ -18,6 +19,7 @@ import type {
   Membership,
   Participation,
   QuickResultWrite,
+  RosterStep,
   ResultWrite,
   Session,
   Status,
@@ -34,6 +36,8 @@ import type {
   Teacher,
   TeacherWrite,
   TeachersStep,
+  ThemeSetting,
+  EnabledThemes,
 } from '../types';
 
 export type CodeStep = { status: 'code_new' | 'code_required' };
@@ -91,14 +95,21 @@ const importFile = <T>(path: string, file: File, grades?: (number | null)[], con
   return request<T>(`/imports/${path}`, { method: 'POST', body });
 };
 
-const importForm = <T>(path: string, parts: Record<string, File | string | undefined>) => {
+const importForm = <T>(path: string, parts: Record<string, File | File[] | string | undefined>) => {
   const body = new FormData();
-  for (const [name, value] of Object.entries(parts)) if (value !== undefined) body.append(name, value);
+  for (const [name, value] of Object.entries(parts)) {
+    if (Array.isArray(value)) value.forEach((item) => body.append(name, item));
+    else if (value !== undefined) body.append(name, value);
+  }
   return request<T>(`/imports/${path}`, { method: 'POST', body });
 };
 
 export const api = {
   session: () => request('/session'),
+  themes: {
+    enabled: () => request<EnabledThemes>('/theme-settings'),
+    list: () => request<ThemeSetting[]>('/themes'),
+  },
   backups: {
     state: () => request<BackupState>('/backups'),
     create: () => request<BackupObject>('/backups', { method: 'POST' }),
@@ -141,6 +152,7 @@ export const api = {
   },
   groups: {
     list: () => all<Group>('/groups'),
+    update: (id: number, data: GroupWrite) => request<Group>(`/groups/${id}`, json('PUT', data)),
     saveCoverage: (groupId: number, examId: number, task_codes: string[]) =>
       request<{ exam_id: number; task_codes: string[] }>(
         `/groups/${groupId}/coverage/${examId}`,
@@ -242,9 +254,12 @@ export const api = {
     teachers: (file: File, groups?: File) => importForm<TeachersStep>('teachers/preview', { file, groups }),
     groups: (file: File, teachers?: File) => importForm<GroupsStep>('groups/preview', { file, teachers }),
     students: (file: File, groups?: File) => importForm<StudentsStep>('students/preview', { file, groups }),
+    rosters: (files: File[]) => importForm<RosterStep>('rosters/preview', { files }),
     legacy: (file: File) => importForm<LegacyStep>('legacy/analyze', { file }),
-    run: (files: { teachers?: File; groups?: File; students?: File; legacy?: File }, confirmation?: string) =>
-      importForm<ImportRun>(confirmation ? 'run/apply' : 'run/preview', { ...files, confirmation }),
+    run: (
+      files: { teachers?: File; groups?: File; students?: File; rosters?: File[]; legacy?: File },
+      confirmation?: string,
+    ) => importForm<ImportRun>(confirmation ? 'run/apply' : 'run/preview', { ...files, confirmation }),
     analyze: (file: File) => importFile<ImportAnalysis>('analyze', file),
     preview: (file: File, grades: (number | null)[]) => importFile<ImportPreview>('preview', file, grades),
     apply: (file: File, confirmation: string, grades: (number | null)[]) =>
@@ -265,8 +280,8 @@ export const api = {
       request<StudentParticipation>(`/student/participations/${id}`, { method: 'DELETE' }),
   },
   teacher: {
-    login: (first_name: string, middle_name: string, code?: string) =>
-      request<TeacherLoginResult>('/teacher/login', json('POST', { first_name, middle_name, code })),
+    login: (last_name: string, first_name: string, code?: string) =>
+      request<TeacherLoginResult>('/teacher/login', json('POST', { last_name, first_name, code })),
   },
 };
 

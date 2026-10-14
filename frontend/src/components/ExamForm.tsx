@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { api } from '../api/client';
-import type { Exam, ExamEvent, ExamEventCreate, SubjectSetting, Task } from '../types';
+import type { Exam, ExamEvent, ExamEventCreate, SubjectSetting, Task, ThemeSetting } from '../types';
 import { useAction } from '../hooks/useAction';
 import { Modal } from './Modal';
 import { Button } from './Button';
@@ -79,14 +79,17 @@ export function ExamForm({
   const [subjects, setSubjects] = useState<Subject[]>(() => initialSubjects(exams));
   const [schools, setSchools] = useState<SchoolDraft[]>(() => initialSchools(exams));
   const [settings, setSettings] = useState<SubjectSetting[]>([]);
+  const [themes, setThemes] = useState<ThemeSetting[]>([]);
   const [settingsError, setSettingsError] = useState('');
   const { busy, error, run } = useAction();
   useEffect(() => {
     let current = true;
-    void api.subjects
-      .list()
-      .then((items) => {
-        if (current) setSettings(items);
+    void Promise.all([api.subjects.list(), api.themes.list()])
+      .then(([subjectItems, themeItems]) => {
+        if (current) {
+          setSettings(subjectItems);
+          setThemes(themeItems);
+        }
       })
       .catch((reason: Error) => {
         if (current) setSettingsError(reason.message);
@@ -129,6 +132,7 @@ export function ExamForm({
       if (!subjects.length) throw new Error('Выберите хотя бы один предмет ЕГЭ или ОГЭ.');
       const payload: ExamEventCreate = {
         title: value('title'),
+        theme_key: value('theme') || null,
         draft: false,
         registration_open_at: time('opens'),
         registration_close_at: time('closes'),
@@ -194,6 +198,20 @@ export function ExamForm({
                   type="datetime-local"
                   defaultValue={localTime(exams?.[0].registration_close_at ?? null)}
                 />
+              </label>
+              <label className="full-width">
+                Тема оформления
+                <select name="theme" defaultValue={exams?.[0].theme_key ?? ''}>
+                  <option value="">Обычное оформление</option>
+                  {themes.map((theme) => (
+                    <option value={theme.key} key={theme.key}>
+                      {theme.title}
+                    </option>
+                  ))}
+                </select>
+                <small className="muted">
+                  Если выбрать Хэллоуин, на странице входа появится кнопка «Воспользоваться магией».
+                </small>
               </label>
             </div>
             <h3>Предметы для записи</h3>

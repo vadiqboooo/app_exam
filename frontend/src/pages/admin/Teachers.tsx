@@ -44,6 +44,7 @@ function TeacherForm({
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const data: TeacherWrite = {
+      last_name: String(form.get('last_name') ?? '').trim(),
       first_name: String(form.get('first_name') ?? '').trim(),
       middle_name: String(form.get('middle_name') ?? '').trim(),
       group_ids: groupIds,
@@ -67,6 +68,16 @@ function TeacherForm({
           <fieldset className="stack" disabled={busy}>
             <div className="form-grid">
               <label>
+                Фамилия
+                <input
+                  name="last_name"
+                  autoComplete="family-name"
+                  defaultValue={teacher?.last_name ?? ''}
+                  placeholder="Иванова"
+                  required
+                />
+              </label>
+              <label>
                 Имя
                 <input
                   name="first_name"
@@ -77,13 +88,12 @@ function TeacherForm({
                 />
               </label>
               <label>
-                Отчество
+                Отчество <span className="muted">(если есть)</span>
                 <input
                   name="middle_name"
                   autoComplete="additional-name"
                   defaultValue={teacher?.middle_name ?? ''}
                   placeholder="Сергеевна"
-                  required
                 />
               </label>
             </div>
@@ -149,6 +159,7 @@ function TeacherForm({
 }
 
 type Filter = 'all' | CodeState;
+type StatusFilter = 'active' | 'archived' | 'all';
 const filters: [Filter, string][] = [
   ['all', 'Все'],
   ['set', 'Код создан'],
@@ -162,6 +173,7 @@ export function Teachers() {
   const { data: workspace, refresh: refreshWorkspace } = useWorkspace();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
+  const [status, setStatus] = useState<StatusFilter>('active');
   const [editing, setEditing] = useState<Teacher | null | undefined>();
   const [deleting, setDeleting] = useState<Teacher>();
   const [resetting, setResetting] = useState<Teacher>();
@@ -177,12 +189,21 @@ export function Teachers() {
   }, [toast]);
 
   const all = (data ?? []).map((teacher) => ({ teacher, state: codeState(teacher) }));
-  const count = (state: CodeState) => all.filter((row) => row.state === state).length;
-  const rows = all.filter(
+  const activeCount = all.filter((row) => row.teacher.is_active).length;
+  const byStatus = all.filter(
+    (row) => status === 'all' || (status === 'active' ? row.teacher.is_active : !row.teacher.is_active),
+  );
+  const count = (state: CodeState) => byStatus.filter((row) => row.state === state).length;
+  const rows = byStatus.filter(
     (row) =>
       (filter === 'all' || row.state === filter) &&
       row.teacher.name.toLowerCase().includes(search.trim().toLowerCase()),
   );
+  const statusTabs: [StatusFilter, string, number][] = [
+    ['active', 'Активные', activeCount],
+    ['archived', 'Архив', all.length - activeCount],
+    ['all', 'Все', all.length],
+  ];
   const saved = async () => {
     await Promise.all([refresh(), refreshWorkspace()]);
     setEditing(undefined);
@@ -221,6 +242,21 @@ export function Teachers() {
   return (
     <div className="sc-section">
       <ErrorNotice message={error} />
+      <div className="sj-pills" role="group" aria-label="Статус сотрудника">
+        {statusTabs.map(([key, label, total]) => (
+          <button
+            type="button"
+            key={key}
+            aria-pressed={status === key}
+            onClick={() => {
+              setStatus(key);
+              setFilter('all');
+            }}
+          >
+            {label} <span>{total}</span>
+          </button>
+        ))}
+      </div>
       <div className="sc-filters">
         <label className="sc-search">
           <Search size={18} />
@@ -255,16 +291,24 @@ export function Teachers() {
               РОЛИ · <small>можно несколько</small>
             </span>
             <span>ГРУППЫ</span>
+            <span>СТАТУС</span>
             <span>КОД ВХОДА</span>
             <span>ПОСЛЕДНИЙ ВХОД</span>
             <span className="ad-right">ДЕЙСТВИЕ</span>
           </div>
           {rows.map(({ teacher, state }) => (
-            <div className="sc-row sc-row-staff sc-item" key={teacher.id}>
+            <div
+              className={`sc-row sc-row-staff sc-item${teacher.is_active ? '' : ' is-archived'}`}
+              key={teacher.id}
+            >
               <span className="sc-name">
-                <button type="button" onClick={() => setEditing(teacher)} title="Редактировать сотрудника">
-                  {teacher.name}
-                </button>
+                {teacher.is_active ? (
+                  <button type="button" onClick={() => setEditing(teacher)} title="Редактировать сотрудника">
+                    {teacher.name}
+                  </button>
+                ) : (
+                  <span>{teacher.name}</span>
+                )}
                 {teacher.id === me && <small>это вы</small>}
               </span>
               <span className="sc-roles">
@@ -275,7 +319,7 @@ export function Teachers() {
                     role="switch"
                     aria-checked={teacher.roles.includes(role)}
                     className={`is-${role}`}
-                    disabled={codes.busy}
+                    disabled={codes.busy || !teacher.is_active}
                     onClick={() => toggleRole(teacher, role)}
                   >
                     {label}
@@ -287,15 +331,24 @@ export function Teachers() {
                   ? plural(teacher.group_ids.length, 'группа', 'группы', 'групп')
                   : '—'}
               </span>
-              <CodeBadge state={state} />
+              <span>
+                <span className={`sc-student-state ${teacher.is_active ? 'is-active' : 'is-archived'}`}>
+                  {teacher.is_active ? 'Активен' : 'В архиве'}
+                </span>
+              </span>
+              {teacher.is_active ? <CodeBadge state={state} /> : <span>—</span>}
               <span>{lastLogin(teacher.last_login_at)}</span>
               <span className="sc-act">
-                <CodeAction
-                  state={state}
-                  busy={codes.busy}
-                  onReset={() => setResetting(teacher)}
-                  onUnlock={() => unlock(teacher)}
-                />
+                {teacher.is_active ? (
+                  <CodeAction
+                    state={state}
+                    busy={codes.busy}
+                    onReset={() => setResetting(teacher)}
+                    onUnlock={() => unlock(teacher)}
+                  />
+                ) : (
+                  '—'
+                )}
               </span>
             </div>
           ))}
@@ -311,7 +364,7 @@ export function Teachers() {
       {editing !== undefined && (
         <TeacherForm
           teacher={editing ?? undefined}
-          groups={workspace.groups}
+          groups={workspace.groups.filter((group) => group.is_active)}
           onClose={() => setEditing(undefined)}
           onSaved={saved}
           onDelete={

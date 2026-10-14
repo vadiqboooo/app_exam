@@ -175,7 +175,10 @@ def _synchronize(
             details = group_details(name)
             group = groups.get(name)
             teacher = None
-            teacher_name = details["teacher_name"]
+            # A complete group roster has an explicit responsible-teacher column. Do not
+            # mistake a name at the end of the group title for a teacher when that column
+            # is empty. Name inference remains available for the legacy student-only import.
+            teacher_name = details["teacher_name"] if known_groups is None else None
             if teacher_name and (group is None or group.teacher_id is None):
                 teacher_key = normalize_name(teacher_name)
                 teacher = teachers.get(teacher_key)
@@ -268,5 +271,5 @@ def _synchronize(
         session.scalars(select(Membership.group_id).where(Membership.ended_at.is_(None)))
     )
     for group in groups.values():
-        group.is_active = group.id in active_group_ids
+        group.is_active = group.id in active_group_ids and not group.is_manually_archived
     return report

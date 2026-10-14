@@ -5,7 +5,7 @@ from openpyxl import Workbook
 from sqlalchemy import select
 
 from app.database import transaction
-from app.models import Participation, Subject
+from app.models import Participation, Staff, Subject
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -43,6 +43,40 @@ STUDENTS = workbook(
         ("Тихонов Егор", "Обучается", "ОГЭ Физика · 9А", 9, "3"),
     ]
 )
+ROSTER_ONE = workbook(
+    [
+        ("Название", "Клиенты", "Статус", "Отв. педагог"),
+        (
+            "ЕГЭ ИНФОРМАТИКА ЧТ 15:00 Вадим",
+            "Иванов Алексей, Петрова Мария",
+            "Идет набор",
+            "Божко Вадим Дмитриевич",
+        ),
+        (
+            "ОГЭ МАТЕМАТИКА ПТ 15:00 Анна",
+            "Сидоров Павел, Петрова Мария",
+            "Обучается",
+            "Мартынова Анна Евгеньевна",
+        ),
+    ]
+)
+ROSTER_TWO = workbook(
+    [
+        ("Название", "Клиенты", "Статус", "Отв. педагог"),
+        (
+            "ЕГЭ РУССКИЙ ЯЗ ПН 18:00 Юлия",
+            "Иванов Алексей, Орлова Елена",
+            "Идет набор",
+            "Ситникова Юлия Васильевна",
+        ),
+    ]
+)
+ROSTER_WITHOUT_TEACHER = workbook(
+    [
+        ("Название", "Клиенты", "Статус", "Отв. педагог"),
+        ("ЕГЭ ФИЗИКА ПН 18:00 Валерия", "Иванов Алексей", "Идет набор", None),
+    ]
+)
 
 
 def files(**named):
@@ -74,7 +108,12 @@ def test_run_applies_every_file_in_one_confirmed_transaction(client):
     assert preview.status_code == 200, preview.text
     body = preview.json()
     assert body["applied"] is False
-    assert body["report"]["teachers"] == {"total": 2, "new": 2}
+    assert body["report"]["teachers"] == {
+        "total": 2,
+        "new": 2,
+        "returned": 0,
+        "archived": 0,
+    }
     assert body["report"]["groups"]["without_teacher"] == 1
     assert body["report"]["students"]["unknown_groups"] == 1
     assert len(body["warnings"]) == 2
@@ -100,6 +139,118 @@ def test_run_applies_every_file_in_one_confirmed_transaction(client):
     assert teachers == {"Екатерина Сергеевна", "Олег Викторович"}
     again = client.post("/api/imports/run/preview", files=upload).json()
     assert again["report"]["teachers"]["new"] == 0
+
+
+def test_multiple_group_rosters_replace_the_three_old_import_files(client):
+    upload = [
+        ("rosters", ("school-one.xlsx", ROSTER_ONE, XLSX)),
+        ("rosters", ("school-two.xlsx", ROSTER_TWO, XLSX)),
+    ]
+    step = client.post(
+        "/api/imports/rosters/preview",
+        files=[
+            ("files", ("school-one.xlsx", ROSTER_ONE, XLSX)),
+            ("files", ("school-two.xlsx", ROSTER_TWO, XLSX)),
+        ],
+    )
+    assert step.status_code == 200, step.text
+    assert step.json()["files"] == 2
+    assert step.json()["teachers"]["total"] == 3
+    assert step.json()["groups"]["total"] == 3
+    assert step.json()["students"]["total"] == 4
+
+    preview = client.post("/api/imports/run/preview", files=upload)
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert body["report"]["teachers"] == {
+        "total": 3,
+        "new": 3,
+        "returned": 0,
+        "archived": 0,
+    }
+    assert body["report"]["groups"]["total"] == 3
+    assert body["report"]["students"]["total"] == 4
+
+    applied = client.post(
+        "/api/imports/run/apply",
+        files=upload,
+        data={"confirmation": body["confirmation"]},
+    )
+    assert applied.status_code == 200, applied.text
+    pupils = {row["full_name"]: row for row in client.get("/api/students").json()}
+    assert pupils["Иванов Алексей"]["grade"] == 11
+    assert pupils["Петрова Мария"]["grade"] is None
+    assert len(client.get("/api/groups").json()) == 3
+
+    # A staff member with administrative duties is not archived merely because their
+    # optional teacher role is absent from the teaching roster.
+    with transaction(client.app.state.engine, write=True) as session:
+        session.add(
+            Staff(
+                name="Системный Администратор",
+                login="admin:test",
+                password_hash="",
+                role="teacher",
+                is_teacher=True,
+                is_admin=True,
+            )
+        )
+
+    # Every run is a complete snapshot across all selected school files. Pupils absent
+    # from the next snapshot are archived, while the pupils still present remain active.
+    next_upload = [("rosters", ("school-two.xlsx", ROSTER_TWO, XLSX))]
+    next_preview = client.post("/api/imports/run/preview", files=next_upload).json()
+    assert next_preview["report"]["students"]["left"] == 2
+    assert next_preview["report"]["teachers"]["archived"] == 2
+    archived = client.post(
+        "/api/imports/run/apply",
+        files=next_upload,
+        data={"confirmation": next_preview["confirmation"]},
+    )
+    assert archived.status_code == 200, archived.text
+    pupils = {row["full_name"]: row for row in client.get("/api/students").json()}
+    assert pupils["Иванов Алексей"]["is_active"] is True
+    assert pupils["Орлова Елена"]["is_active"] is True
+    assert pupils["Петрова Мария"]["is_active"] is False
+    assert pupils["Сидоров Павел"]["is_active"] is False
+    groups = {row["source_name"]: row for row in client.get("/api/groups").json()}
+    assert groups["ЕГЭ РУССКИЙ ЯЗ ПН 18:00 Юлия"]["is_active"] is True
+    assert groups["ЕГЭ ИНФОРМАТИКА ЧТ 15:00 Вадим"]["is_active"] is False
+    assert groups["ОГЭ МАТЕМАТИКА ПТ 15:00 Анна"]["is_active"] is False
+    teachers = {row["name"]: row for row in client.get("/api/teachers").json()}
+    assert teachers["Ситникова Юлия Васильевна"]["is_active"] is True
+    assert teachers["Божко Вадим Дмитриевич"]["is_active"] is False
+    assert teachers["Мартынова Анна Евгеньевна"]["is_active"] is False
+    assert teachers["Системный Администратор"]["is_active"] is True
+
+    # Reappearing in a later complete snapshot restores a teacher automatically.
+    return_upload = [("rosters", ("school-one.xlsx", ROSTER_ONE, XLSX))]
+    return_preview = client.post("/api/imports/run/preview", files=return_upload).json()
+    assert return_preview["report"]["teachers"]["returned"] == 2
+    returned = client.post(
+        "/api/imports/run/apply",
+        files=return_upload,
+        data={"confirmation": return_preview["confirmation"]},
+    )
+    assert returned.status_code == 200, returned.text
+    teachers = {row["name"]: row for row in client.get("/api/teachers").json()}
+    assert teachers["Божко Вадим Дмитриевич"]["is_active"] is True
+    assert teachers["Мартынова Анна Евгеньевна"]["is_active"] is True
+    assert teachers["Ситникова Юлия Васильевна"]["is_active"] is False
+
+
+def test_complete_roster_does_not_infer_teacher_from_group_title(client):
+    upload = [("rosters", ("school.xlsx", ROSTER_WITHOUT_TEACHER, XLSX))]
+    preview = client.post("/api/imports/run/preview", files=upload).json()
+    applied = client.post(
+        "/api/imports/run/apply",
+        files=upload,
+        data={"confirmation": preview["confirmation"]},
+    )
+    assert applied.status_code == 200, applied.text
+    assert client.get("/api/teachers").json() == []
+    [group] = client.get("/api/groups").json()
+    assert group["teacher_id"] is None
 
 
 def legacy_database(path, tasks: int) -> bytes:

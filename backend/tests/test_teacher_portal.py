@@ -32,10 +32,10 @@ def import_rows(client, rows):
     return applied.json()
 
 
-def teacher_headers(client, first_name, middle_name):
+def teacher_headers(client, last_name, first_name):
     response = client.post(
         "/api/teacher/login",
-        json={"first_name": first_name, "middle_name": middle_name, "code": "123456"},
+        json={"last_name": last_name, "first_name": first_name, "code": "123456"},
     )
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['token']}"}
@@ -109,7 +109,7 @@ def test_teacher_login_only_returns_own_groups_and_students(client):
 def test_unknown_teacher_cannot_login(client):
     response = client.post(
         "/api/teacher/login",
-        json={"first_name": "Нет", "middle_name": "Такого"},
+        json={"last_name": "Нет", "first_name": "Такого"},
     )
     assert response.status_code == 422
 
@@ -151,6 +151,40 @@ def test_admin_can_manage_teachers_and_manual_groups_survive_import(client):
     assert all(group["teacher_name"] is None for group in unassigned)
 
 
+def test_admin_can_edit_and_manually_archive_group(client):
+    rows = [["Иванов Иван", "Обучается", "Физика ЕГЭ ПН 15:00 Анна Сергеевна", 11]]
+    import_rows(client, rows)
+    [group] = client.get("/api/groups").json()
+    teacher_headers_value = teacher_headers(client, "  анна ", " СЕРГЕЕВНА ")
+    assert len(client.get("/api/groups", headers=teacher_headers_value).json()) == 1
+
+    payload = {
+        "source_name": group["source_name"],
+        "subject": "Астрономия",
+        "exam_format": "ege",
+        "teacher_id": group["teacher_id"],
+        "is_active": False,
+    }
+    updated = client.put(f"/api/groups/{group['id']}", json=payload)
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["subject"] == "Астрономия"
+    assert updated.json()["is_active"] is False
+    assert client.get("/api/groups", headers=teacher_headers_value).json() == []
+    assert client.get("/api/memberships", headers=teacher_headers_value).json() == []
+    assert client.get("/api/students", headers=teacher_headers_value).json() == []
+
+    # A manual archive choice has priority over a later CRM snapshot.
+    import_rows(client, rows)
+    [still_archived] = client.get("/api/groups").json()
+    assert still_archived["is_active"] is False
+
+    payload["is_active"] = True
+    restored = client.put(f"/api/groups/{group['id']}", json=payload)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["is_active"] is True
+    assert len(client.get("/api/groups", headers=teacher_headers_value).json()) == 1
+
+
 def test_admin_can_create_teacher_and_duplicate_name_is_rejected(client):
     created = client.post(
         "/api/teachers",
@@ -162,3 +196,50 @@ def test_admin_can_create_teacher_and_duplicate_name_is_rejected(client):
         json={"first_name": " мария ", "middle_name": "ИВАНОВНА", "group_ids": []},
     )
     assert duplicate.status_code == 422
+
+
+def test_employee_full_name_is_stored_as_last_first_middle(client):
+    created = client.post(
+        "/api/teachers",
+        json={
+            "last_name": "Петрова",
+            "first_name": "Мария",
+            "middle_name": "Ивановна",
+            "group_ids": [],
+            "roles": ["admin"],
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["name"] == "Петрова Мария Ивановна"
+    assert created.json()["last_name"] == "Петрова"
+    assert created.json()["first_name"] == "Мария"
+    assert created.json()["middle_name"] == "Ивановна"
+
+    login = client.post(
+        "/api/teacher/login",
+        json={
+            "last_name": " петрова ",
+            "first_name": "  МАРИЯ  ",
+        },
+    )
+    assert login.status_code == 200, login.text
+    assert login.json() == {"status": "code_new"}
+
+
+def test_two_part_surname_and_first_name_are_split_without_patronymic(client, engine):
+    with transaction(engine, write=True) as session:
+        employee = Staff(
+            name="Белоусова Алина",
+            login="teacher:белоусова алина",
+            password_hash="",
+            role="teacher",
+            is_admin=True,
+        )
+        session.add(employee)
+
+    listed = next(
+        row for row in client.get("/api/teachers").json() if row["name"] == "Белоусова Алина"
+    )
+    assert listed["last_name"] == "Белоусова"
+    assert listed["first_name"] == "Алина"
+    assert listed["middle_name"] == ""

@@ -46,18 +46,36 @@ export interface Group {
   /** Tasks of each exam the group has already covered in class. */
   coverage: { exam_id: number; task_codes: string[] }[];
 }
+export interface GroupWrite {
+  source_name: string;
+  subject: string | null;
+  exam_format: 'ege' | 'oge' | null;
+  teacher_id: number | null;
+  is_active: boolean;
+}
+export interface ThemeSetting {
+  key: string;
+  title: string;
+  is_enabled: boolean;
+}
+export interface EnabledThemes {
+  enabled: string[];
+}
 export interface Teacher {
   id: number;
   name: string;
+  last_name: string;
   first_name: string;
   middle_name: string;
   roles: StaffRole[];
+  is_active: boolean;
   group_ids: number[];
   has_code: boolean;
   locked_until: string | null;
   last_login_at: string | null;
 }
 export interface TeacherWrite {
+  last_name: string;
   first_name: string;
   middle_name: string;
   group_ids: number[];
@@ -125,6 +143,7 @@ export interface SubjectVariant {
 export interface Exam {
   id: number;
   event_id: number | null;
+  theme_key: string | null;
   format: 'ege' | 'oge' | null;
   slots: ExamSlot[];
   type: 'mock' | 'ege';
@@ -155,6 +174,7 @@ export interface ExamSlot {
 }
 export interface ExamEventCreate {
   title: string;
+  theme_key?: string | null;
   draft?: boolean;
   registration_open_at: string | null;
   registration_close_at: string | null;
@@ -174,6 +194,7 @@ export interface ExamEventCreate {
 export interface ExamEvent {
   id: number;
   title: string;
+  theme_key: string | null;
   exam_ids: number[];
 }
 export type ExamCreate = Omit<Exam, 'id' | 'event_id' | 'format' | 'slots'>;
@@ -236,8 +257,10 @@ export interface ImportPreview {
 export interface TeachersStep {
   total: number;
   new: number;
+  returned: number;
+  archived: number;
   unchanged: number;
-  rows: { name: string; subjects: string; groups: number; status: 'new' | 'unchanged' }[];
+  rows: { name: string; subjects: string; groups: number; status: 'new' | 'returned' | 'unchanged' }[];
 }
 export interface GroupsStep {
   total: number;
@@ -257,6 +280,12 @@ export interface StudentsStep {
   unknown_group: number;
   unchanged: number;
   rows: { name: string; grade: number | null; groups: string; status: StudentStatus }[];
+}
+export interface RosterStep {
+  files: number;
+  teachers: TeachersStep;
+  groups: GroupsStep;
+  students: StudentsStep;
 }
 export interface LegacyStep {
   title: string | null;
@@ -319,7 +348,7 @@ export interface ImportRun {
   backup?: BackupState;
   warnings: { n: string; text: string }[];
   report: {
-    teachers: { total: number; new: number } | null;
+    teachers: { total: number; new: number; returned: number; archived: number } | null;
     groups: { total: number; new: number; without_teacher: number } | null;
     students: {
       total: number;

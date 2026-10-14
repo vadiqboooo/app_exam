@@ -12,10 +12,13 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { EmptyState } from '../../components/EmptyState';
 import type { Student } from '../../types';
 
+type StatusFilter = 'active' | 'archived' | 'all';
+
 export function Students() {
   const { data, refresh } = useWorkspace();
   const [search, setSearch] = useState('');
   const [group, setGroup] = useState('');
+  const [status, setStatus] = useState<StatusFilter>('active');
   const [resetting, setResetting] = useState<Student>();
   const [toast, setToast] = useState('');
   const { busy, error, run } = useAction();
@@ -25,14 +28,22 @@ export function Students() {
     return () => clearTimeout(timer);
   }, [toast]);
 
-  const students = data.students
-    .filter((student) => student.is_active)
-    .map((student) => ({
-      student,
-      groups: studentGroups(student.id, data.memberships, data.groups),
-    }));
+  const activeCount = data.students.filter((student) => student.is_active).length;
+  const allStudents = data.students.map((student) => {
+    const groups = student.is_active
+      ? studentGroups(student.id, data.memberships, data.groups)
+      : data.groups.filter((item) =>
+          data.memberships.some(
+            (membership) => membership.student_id === student.id && membership.group_id === item.id,
+          ),
+        );
+    return { student, groups };
+  });
+  const students = allStudents.filter(
+    ({ student }) => status === 'all' || (status === 'active' ? student.is_active : !student.is_active),
+  );
   const groupOptions = data.groups
-    .filter((item) => item.is_active)
+    .filter((item) => students.some((row) => row.groups.some((groupItem) => groupItem.id === item.id)))
     .map((item) => ({
       item,
       count: students.filter((row) => row.groups.some((g) => g.id === item.id)).length,
@@ -43,6 +54,11 @@ export function Students() {
       (!group || row.groups.some((g) => g.id === Number(group))) &&
       row.student.full_name.toLowerCase().includes(search.trim().toLowerCase()),
   );
+  const statusTabs: [StatusFilter, string, number][] = [
+    ['active', 'Активные', activeCount],
+    ['archived', 'Архив', data.students.length - activeCount],
+    ['all', 'Все', data.students.length],
+  ];
 
   const unlock = (student: Student) =>
     void run(async () => {
@@ -60,6 +76,22 @@ export function Students() {
 
   return (
     <div className="sc-section">
+      <div className="sj-pills" role="group" aria-label="Статус ученика">
+        {statusTabs.map(([key, label, count]) => (
+          <button
+            type="button"
+            key={key}
+            aria-pressed={status === key}
+            onClick={() => {
+              setStatus(key);
+              setGroup('');
+            }}
+          >
+            {label}
+            <span>{count}</span>
+          </button>
+        ))}
+      </div>
       <div className="sc-filters">
         <label className="sc-search">
           <Search size={18} />
@@ -88,6 +120,7 @@ export function Students() {
             <span>УЧЕНИК</span>
             <span>КЛАСС</span>
             <span>ГРУПП</span>
+            <span>СТАТУС</span>
             <span>КОД ВХОДА</span>
             <span>ПОСЛЕДНИЙ ВХОД</span>
             <span className="ad-right">ДЕЙСТВИЕ</span>
@@ -95,21 +128,33 @@ export function Students() {
           {rows.map(({ student, groups }) => {
             const state = codeState(student);
             return (
-              <div className="sc-row sc-row-students sc-item" key={student.id}>
+              <div
+                className={`sc-row sc-row-students sc-item${student.is_active ? '' : ' is-archived'}`}
+                key={student.id}
+              >
                 <span className="sc-name">
                   <Link to={`/students/${student.id}`}>{student.full_name}</Link>
                 </span>
                 <span>{student.grade ?? '—'}</span>
                 <span>{plural(groups.length, 'группа', 'группы', 'групп')}</span>
-                <CodeBadge state={state} />
+                <span>
+                  <span className={`sc-student-state ${student.is_active ? 'is-active' : 'is-archived'}`}>
+                    {student.is_active ? 'Активен' : 'В архиве'}
+                  </span>
+                </span>
+                {student.is_active ? <CodeBadge state={state} /> : <span>—</span>}
                 <span>{lastLogin(student.last_login_at)}</span>
                 <span className="sc-act">
-                  <CodeAction
-                    state={state}
-                    busy={busy}
-                    onReset={() => setResetting(student)}
-                    onUnlock={() => unlock(student)}
-                  />
+                  {student.is_active ? (
+                    <CodeAction
+                      state={state}
+                      busy={busy}
+                      onReset={() => setResetting(student)}
+                      onUnlock={() => unlock(student)}
+                    />
+                  ) : (
+                    '—'
+                  )}
                 </span>
               </div>
             );
@@ -117,7 +162,10 @@ export function Students() {
         </section>
       ) : (
         <div className="panel">
-          <EmptyState title="Ученики не найдены" text="Измените поиск или группу." />
+          <EmptyState
+            title={status === 'archived' ? 'В архиве никого нет' : 'Ученики не найдены'}
+            text="Измените поиск, группу или статус."
+          />
         </div>
       )}
       {resetting && (

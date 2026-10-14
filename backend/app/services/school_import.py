@@ -78,18 +78,24 @@ def count_ru(n: int, one: str, few: str, many: str) -> str:
     return f"{n} {word}"
 
 
-def _teachers(session: Session) -> list[Staff]:
-    return list(session.scalars(select(Staff).where(Staff.is_teacher.is_(True))))
+def _teachers(session: Session, *, active_only: bool = False) -> list[Staff]:
+    query = select(Staff).where(Staff.is_teacher.is_(True))
+    if active_only:
+        query = query.where(Staff.is_active.is_(True))
+    return list(session.scalars(query))
 
 
 def teachers_preview(
     session: Session, records: list[TeacherRecord], groups: list[GroupRecord] | None = None
 ) -> dict:
     existing = _teachers(session)
+    matched: set[int] = set()
     db_groups = list(session.scalars(select(StudyGroup)))
     rows = []
     for record in records:
         found = next((t for t in existing if same_person(record.name, t.name)), None)
+        if found is not None:
+            matched.add(found.id)
         if groups is not None:
             group_count = sum(
                 bool(g.teacher and same_person(g.teacher, record.name)) for g in groups
@@ -101,13 +107,28 @@ def teachers_preview(
                 "name": record.name,
                 "subjects": ", ".join(record.subjects) or "—",
                 "groups": group_count,
-                "status": "unchanged" if found else "new",
+                "status": (
+                    "returned"
+                    if found and not found.is_active
+                    else "unchanged"
+                    if found
+                    else "new"
+                ),
             }
         )
-    rows.sort(key=lambda row: row["status"] != "new")
+    archived = sum(
+        teacher.is_active
+        and not teacher.is_admin
+        and not teacher.is_responsible
+        and teacher.id not in matched
+        for teacher in existing
+    )
+    rows.sort(key=lambda row: row["status"] == "unchanged")
     return {
         "total": len(records),
         "new": sum(row["status"] == "new" for row in rows),
+        "returned": sum(row["status"] == "returned" for row in rows),
+        "archived": archived,
         "unchanged": sum(row["status"] == "unchanged" for row in rows),
         "rows": rows[:PREVIEW_ROWS],
     }
@@ -328,25 +349,49 @@ def _apply(
 
     if teachers is not None:
         existing = _teachers(session)
-        created = 0
+        matched: set[int] = set()
+        created = returned = archived = 0
         for record in teachers:
-            if any(same_person(record.name, t.name) for t in existing):
+            teacher = next((t for t in existing if same_person(record.name, t.name)), None)
+            if teacher is not None:
+                matched.add(teacher.id)
+                if not teacher.is_active:
+                    teacher.is_active = True
+                    returned += 1
                 continue
             teacher = Staff(
                 name=record.name,
                 login=f"teacher:{normalize_name(record.name)}",
                 password_hash="",
                 role="teacher",
+                is_active=True,
             )
             session.add(teacher)
             session.flush()
             existing.append(teacher)
+            matched.add(teacher.id)
             created += 1
-        summary["teachers"] = {"total": len(teachers), "new": created}
+        for teacher in existing:
+            # Importing a teaching roster must not lock an administrator or a subject
+            # responsible who also happens to have the teacher role.
+            if (
+                teacher.id not in matched
+                and teacher.is_active
+                and not teacher.is_admin
+                and not teacher.is_responsible
+            ):
+                teacher.is_active = False
+                archived += 1
+        summary["teachers"] = {
+            "total": len(teachers),
+            "new": created,
+            "returned": returned,
+            "archived": archived,
+        }
 
     known_groups = None
     if groups is not None:
-        people = _teachers(session)
+        people = _teachers(session, active_only=True)
         by_name = {g.source_name: g for g in session.scalars(select(StudyGroup))}
         created, lonely = 0, []
         for record in groups:
@@ -364,10 +409,17 @@ def _apply(
                 session.add(group)
                 created += 1
             else:
-                group.subject = group.subject or record.subject
-                group.exam_format = group.exam_format or record.exam_format
-                if group.teacher_id is None and teacher is not None:
+                if record.subject is not None:
+                    group.subject = record.subject
+                if record.exam_format is not None:
+                    group.exam_format = record.exam_format
+                assigned = (
+                    session.get(Staff, group.teacher_id) if group.teacher_id is not None else None
+                )
+                if teacher is not None and (assigned is None or not assigned.is_active):
                     group.teacher_id = teacher.id
+                elif assigned is not None and not assigned.is_active:
+                    group.teacher_id = None
             if teacher is None and group.teacher_id is None:
                 lonely.append(record)
         session.flush()

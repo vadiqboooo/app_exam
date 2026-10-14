@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, Briefcase, GraduationCap } from 'lucide-react';
 import { Art, Bat, CREDIT, Glow, GlowDefs, Stars } from './Art';
 import { Brew } from './Brew';
-import { daysToWeek, setHalloween, useHalloween, WEEK } from './theme';
+import { daysToWeek, setHalloween, useHalloween, useThemeEnabled, WEEK } from './theme';
 
 const SPARKLE = 'M12 1l2.6 8.4L23 12l-8.4 2.6L12 23l-2.6-8.4L1 12l8.4-2.6z';
 const dayMonth = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' });
@@ -210,7 +210,7 @@ function LightChoice({
 }: {
   onStudent: () => void;
   onStaff: () => void;
-  onMagic: () => void;
+  onMagic?: () => void;
 }) {
   return (
     <div className="lg-page">
@@ -256,18 +256,20 @@ function LightChoice({
               <ArrowRight size={22} />
             </button>
           </div>
-          <button type="button" className="hw-magic lg-magic" onClick={onMagic}>
-            <svg className="hw-sp" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-              <path d={SPARKLE} fill="#ffe9a8" />
-            </svg>
-            <span>
-              <strong>Воспользоваться магией</strong>
-              <small>Школа Гарри — всё немного волшебное</small>
-            </span>
-            <svg className="hw-sp" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-              <path d={SPARKLE} fill="#ffe9a8" />
-            </svg>
-          </button>
+          {onMagic && (
+            <button type="button" className="hw-magic lg-magic" onClick={onMagic}>
+              <svg className="hw-sp" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                <path d={SPARKLE} fill="#ffe9a8" />
+              </svg>
+              <span>
+                <strong>Воспользоваться магией</strong>
+                <small>Школа Гарри — всё немного волшебное</small>
+              </span>
+              <svg className="hw-sp" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                <path d={SPARKLE} fill="#ffe9a8" />
+              </svg>
+            </button>
+          )}
         </div>
       </section>
     </div>
@@ -277,6 +279,7 @@ function LightChoice({
 /** The door choice: ordinary, or Halloween once the student has used the magic. */
 export function LoginChoice({ onStudent, onStaff }: { onStudent: () => void; onStaff: () => void }) {
   const halloween = useHalloween();
+  const halloweenEnabled = useThemeEnabled('halloween');
   const [brewing, setBrewing] = useState(false);
   useEffect(() => {
     if (!brewing) return;
@@ -291,6 +294,10 @@ export function LoginChoice({ onStudent, onStaff }: { onStudent: () => void; onS
   return halloween ? (
     <HalloweenChoice onStudent={onStudent} onStaff={onStaff} />
   ) : (
-    <LightChoice onStudent={onStudent} onStaff={onStaff} onMagic={() => setBrewing(true)} />
+    <LightChoice
+      onStudent={onStudent}
+      onStaff={onStaff}
+      onMagic={halloweenEnabled ? () => setBrewing(true) : undefined}
+    />
   );
 }

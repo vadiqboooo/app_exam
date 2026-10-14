@@ -11,6 +11,7 @@ from app.models import (
     GroupCoverage,
     Participation,
     Subject,
+    ThemeSetting,
     VariantEvent,
 )
 from app.schemas.exam_event import EventCreate, EventRead
@@ -65,6 +66,14 @@ def _event_bounds(data: EventCreate):
     return fallback, None
 
 
+def _validate_theme(session, theme_key: str | None):
+    if theme_key is None:
+        return
+    theme = session.get(ThemeSetting, theme_key)
+    if theme is None or not theme.is_enabled:
+        raise ValueError("Выбранная тема оформления недоступна")
+
+
 def _validate_new_times(data: EventCreate, existing_slots: dict[int, ExamSlot] | None = None):
     if data.draft:
         return
@@ -80,7 +89,8 @@ def _validate_new_times(data: EventCreate, existing_slots: dict[int, ExamSlot] |
 @router.post("", response_model=EventRead, status_code=201)
 def create_event(data: EventCreate, session: WriteSession):
     _validate_new_times(data)
-    event = ExamEvent(title=data.title)
+    _validate_theme(session, data.theme_key)
+    event = ExamEvent(title=data.title, theme_key=data.theme_key)
     session.add(event)
     session.flush()
     schools = [
@@ -123,7 +133,12 @@ def create_event(data: EventCreate, session: WriteSession):
         ]
     )
     session.flush()
-    return {"id": event.id, "title": event.title, "exam_ids": exam_ids}
+    return {
+        "id": event.id,
+        "title": event.title,
+        "theme_key": event.theme_key,
+        "exam_ids": exam_ids,
+    }
 
 
 @router.put("/{event_id}", response_model=EventRead)
@@ -155,6 +170,7 @@ def update_event(event_id: int, data: EventCreate, session: WriteSession):
     ):
         raise ValueError("Время в пробнике не должно повторяться")
     _validate_new_times(data, slot_by_id)
+    _validate_theme(session, data.theme_key)
 
     removed_exam_ids = set(exam_by_id) - supplied_exam_ids
     removed_slot_ids = set(slot_by_id) - supplied_slot_ids
@@ -174,6 +190,7 @@ def update_event(event_id: int, data: EventCreate, session: WriteSession):
         raise ValueError("Нельзя удалить время, на которое уже записаны ученики")
 
     event.title = data.title
+    event.theme_key = data.theme_key
     starts_at, ends_at = _event_bounds(data)
     kept_exams = []
     for subject in data.subjects:
@@ -245,7 +262,12 @@ def update_event(event_id: int, data: EventCreate, session: WriteSession):
         session.execute(delete(GroupCoverage).where(GroupCoverage.exam_id.in_(removed_exam_ids)))
         session.execute(delete(Exam).where(Exam.id.in_(removed_exam_ids)))
     session.flush()
-    return {"id": event.id, "title": event.title, "exam_ids": [exam.id for exam in kept_exams]}
+    return {
+        "id": event.id,
+        "title": event.title,
+        "theme_key": event.theme_key,
+        "exam_ids": [exam.id for exam in kept_exams],
+    }
 
 
 @router.delete("/{event_id}")

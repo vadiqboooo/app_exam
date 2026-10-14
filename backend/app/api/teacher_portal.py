@@ -17,18 +17,21 @@ def login(data: TeacherCodeLogin, request: Request, session: WriteSession):
     settings = request.app.state.settings
     if not settings.api_key:
         raise HTTPException(503, "Настройте API_KEY для входа учителей")
-    name_key = normalize_name(f"{data.first_name} {data.middle_name}")
+    name_key = normalize_name(f"{data.last_name} {data.first_name}")
     matches = [
         teacher
         for teacher in session.scalars(select(Staff))
         if normalize_name(teacher.name) == name_key
+        or normalize_name(teacher.name).startswith(name_key + " ")
     ]
     if len(matches) != 1:
         raise HTTPException(
             422,
-            "Сотрудник не найден или имя и отчество неоднозначны. Проверьте данные в CRM",
+            "Сотрудник не найден или есть полные тёзки. Проверьте фамилию и имя",
         )
     teacher = matches[0]
+    if not teacher.is_active:
+        raise HTTPException(422, "Сотрудник находится в архиве")
     has_groups = session.scalar(
         select(StudyGroup.id).where(
             StudyGroup.teacher_id == teacher.id, StudyGroup.is_active.is_(True)

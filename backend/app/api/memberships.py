@@ -26,7 +26,9 @@ def list_memberships(
 ):
     query = select(Membership)
     if current_teacher_id is not None:
-        query = query.join(StudyGroup).where(StudyGroup.teacher_id == current_teacher_id)
+        query = query.join(StudyGroup).where(
+            StudyGroup.teacher_id == current_teacher_id, StudyGroup.is_active.is_(True)
+        )
     return session.scalars(query.order_by(Membership.id).limit(limit).offset(offset)).all()
 
 

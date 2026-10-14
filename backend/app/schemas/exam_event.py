@@ -36,6 +36,7 @@ class SubjectCreate(Schema):
 
 class EventCreate(Schema):
     title: NonEmpty
+    theme_key: str | None = None
     schools: list[SchoolCreate] = Field(default_factory=list)
     subjects: list[SubjectCreate] = Field(min_length=1)
     draft: bool = False
@@ -83,4 +84,5 @@ class EventCreate(Schema):
 class EventRead(Schema):
     id: int
     title: str
+    theme_key: str | None
     exam_ids: list[int]

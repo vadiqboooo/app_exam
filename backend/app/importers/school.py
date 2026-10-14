@@ -7,6 +7,7 @@ import os
 import re
 import sqlite3
 import tempfile
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +18,7 @@ from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
 from app.importers.group_details import group_details
-from app.importers.record import normalize_name
+from app.importers.record import StudentRecord, normalize_name
 
 SQLITE_MAGIC = b"SQLite format 3\x00"
 
@@ -34,6 +35,15 @@ class GroupRecord:
     subject: str | None
     exam_format: str | None
     teacher: str | None
+
+
+@dataclass(frozen=True)
+class RosterData:
+    """Normalized contents of one or more group-roster exports."""
+
+    teachers: tuple[TeacherRecord, ...]
+    groups: tuple[GroupRecord, ...]
+    students: tuple[StudentRecord, ...]
 
 
 @dataclass(frozen=True)
@@ -136,6 +146,152 @@ def read_groups(source: BinaryIO) -> list[GroupRecord]:
     if not records:
         raise ValueError("В файле нет групп")
     return records
+
+
+def _grade_from_group(name: str, exam_format: str | None) -> int | None:
+    explicit = re.search(r"(?<!\d)(1[01]|[1-9])\s*(?:класс|кл\.?)(?!\w)", name, re.IGNORECASE)
+    if explicit:
+        return int(explicit.group(1))
+    return {"oge": 9, "ege": 11}.get(exam_format or "")
+
+
+def _pupils(value: str) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            " ".join(part.split()) for part in re.split(r"[,;\r\n]+", value) if part.strip()
+        )
+    )
+
+
+def read_group_roster(source: BinaryIO) -> RosterData:
+    """Read an export where every row contains a group, its teacher and its pupils."""
+    headers, rows = _table(source)
+    name_col = _find(headers, "название", "название группы", "группа")
+    pupils_col = _find(headers, "клиенты", "ученики", "учащиеся")
+    teacher_col = _find(
+        headers,
+        "отв. педагог",
+        "ответственный педагог",
+        "ответственный учитель",
+        "учитель",
+        "преподаватель",
+    )
+    missing = []
+    if name_col is None:
+        missing.append("Название")
+    if pupils_col is None:
+        missing.append("Клиенты")
+    if teacher_col is None:
+        missing.append("Отв. педагог")
+    if missing:
+        raise ValueError("В файле нет колонок: " + ", ".join(f"«{name}»" for name in missing))
+
+    groups: list[GroupRecord] = []
+    teachers: dict[str, dict] = {}
+    students: dict[str, dict] = {}
+    seen_groups: set[str] = set()
+    for number, row in enumerate(rows, start=2):
+        name = _cell(row, name_col)
+        if not name:
+            continue
+        if name in seen_groups:
+            raise ValueError(f"Строка {number}: повтор группы в файле: {name}")
+        seen_groups.add(name)
+        teacher = _cell(row, teacher_col) or None
+        details = group_details(name)
+        subject = details["subject"]
+        exam_format = details["exam_format"]
+        groups.append(GroupRecord(name, subject, exam_format, teacher))
+
+        if teacher:
+            key = normalize_name(teacher)
+            item = teachers.setdefault(key, {"name": teacher, "subjects": []})
+            if subject and subject not in item["subjects"]:
+                item["subjects"].append(subject)
+
+        grade = _grade_from_group(name, exam_format)
+        for pupil in _pupils(_cell(row, pupils_col)):
+            key = normalize_name(pupil)
+            item = students.setdefault(
+                key, {"name": pupil, "groups": [], "grades": defaultdict(int)}
+            )
+            if name not in item["groups"]:
+                item["groups"].append(name)
+            if grade is not None:
+                item["grades"][grade] += 1
+
+    if not groups:
+        raise ValueError("В файле нет групп")
+    student_records = []
+    for item in students.values():
+        grades = item["grades"]
+        grade = None
+        if grades:
+            best = max(grades.values())
+            candidates = [value for value, count in grades.items() if count == best]
+            if len(candidates) == 1:
+                grade = candidates[0]
+        student_records.append(
+            StudentRecord(full_name=item["name"], grade=grade, groups=tuple(item["groups"]))
+        )
+    return RosterData(
+        teachers=tuple(
+            TeacherRecord(item["name"], tuple(item["subjects"])) for item in teachers.values()
+        ),
+        groups=tuple(groups),
+        students=tuple(student_records),
+    )
+
+
+def combine_group_rosters(rosters: list[RosterData]) -> RosterData:
+    """Combine exports from several schools into one complete import snapshot."""
+    teachers: dict[str, dict] = {}
+    groups: dict[str, GroupRecord] = {}
+    students: dict[str, dict] = {}
+    for roster in rosters:
+        for teacher in roster.teachers:
+            key = normalize_name(teacher.name)
+            item = teachers.setdefault(key, {"name": teacher.name, "subjects": []})
+            for subject in teacher.subjects:
+                if subject not in item["subjects"]:
+                    item["subjects"].append(subject)
+        for group in roster.groups:
+            previous = groups.get(group.name)
+            if previous is not None and previous != group:
+                raise ValueError(
+                    f"Группа «{group.name}» встречается в нескольких файлах с разными данными"
+                )
+            groups[group.name] = group
+        for student in roster.students:
+            key = normalize_name(student.full_name)
+            item = students.setdefault(
+                key, {"name": student.full_name, "groups": [], "grades": Counter()}
+            )
+            for group in student.groups:
+                if group not in item["groups"]:
+                    item["groups"].append(group)
+            if student.grade is not None:
+                item["grades"][student.grade] += 1
+
+    student_records = []
+    for item in students.values():
+        grades = item["grades"]
+        grade = None
+        if grades:
+            best = max(grades.values())
+            candidates = [value for value, count in grades.items() if count == best]
+            if len(candidates) == 1:
+                grade = candidates[0]
+        student_records.append(
+            StudentRecord(full_name=item["name"], grade=grade, groups=tuple(item["groups"]))
+        )
+    return RosterData(
+        teachers=tuple(
+            TeacherRecord(item["name"], tuple(item["subjects"])) for item in teachers.values()
+        ),
+        groups=tuple(groups.values()),
+        students=tuple(student_records),
+    )
 
 
 def _scores(answer: str | None) -> tuple[float | None, ...]:

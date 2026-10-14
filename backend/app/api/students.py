@@ -36,7 +36,11 @@ def list_students(
         own = (
             select(Membership.student_id)
             .join(StudyGroup)
-            .where(Membership.ended_at.is_(None), StudyGroup.teacher_id == current_teacher_id)
+            .where(
+                Membership.ended_at.is_(None),
+                StudyGroup.teacher_id == current_teacher_id,
+                StudyGroup.is_active.is_(True),
+            )
         )
         # Pupils of other groups whose work this teacher entered stay visible to them.
         checked = select(Participation.student_id).where(
@@ -120,6 +124,7 @@ def get_student(
                 Membership.student_id == student_id,
                 Membership.ended_at.is_(None),
                 StudyGroup.teacher_id == current_teacher_id,
+                StudyGroup.is_active.is_(True),
             )
         )
         if own_student is None:
@@ -138,7 +143,9 @@ def memberships(
     get_student(student_id, session, current_teacher_id)
     query = select(Membership).where(Membership.student_id == student_id)
     if current_teacher_id is not None:
-        query = query.join(StudyGroup).where(StudyGroup.teacher_id == current_teacher_id)
+        query = query.join(StudyGroup).where(
+            StudyGroup.teacher_id == current_teacher_id, StudyGroup.is_active.is_(True)
+        )
     return session.scalars(query.order_by(Membership.id).limit(limit).offset(offset)).all()
 
 

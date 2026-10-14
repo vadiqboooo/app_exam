@@ -37,6 +37,8 @@ def require_operator(
         staff = session.get(Staff, employee_id)
         if staff is None:
             raise HTTPException(401, "Сотрудник удалён. Войдите снова")
+        if not staff.is_active:
+            raise HTTPException(401, "Сотрудник находится в архиве. Войдите снова")
         request.state.staff_id = staff.id
         request.state.is_admin = staff.is_admin
         if not (staff.is_admin or staff.is_responsible):

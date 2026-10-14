@@ -7,6 +7,7 @@ from app.models.staff import Staff
 from app.models.student import Student
 from app.models.study_group import GroupCoverage, StudyGroup
 from app.models.subject import Subject, SubjectVariant, VariantEvent
+from app.models.theme import ThemeSetting
 
 __all__ = [
     "Base",
@@ -22,5 +23,6 @@ __all__ = [
     "StudyGroup",
     "Subject",
     "SubjectVariant",
+    "ThemeSetting",
     "VariantEvent",
 ]

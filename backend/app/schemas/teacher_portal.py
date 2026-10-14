@@ -13,16 +13,17 @@ def _at_least_one_role(value: list[str]) -> list[str]:
     return sorted(set(value))
 
 
-class TeacherLogin(Schema):
+class TeacherCodeLogin(Schema):
+    last_name: NonEmpty
     first_name: NonEmpty
-    middle_name: NonEmpty
-
-
-class TeacherCodeLogin(TeacherLogin):
     code: str | None = None
 
 
-class TeacherWrite(TeacherLogin):
+class TeacherWrite(Schema):
+    # Optional only for backward compatibility with legacy two-part employee names.
+    last_name: str = ""
+    first_name: NonEmpty
+    middle_name: str = ""
     group_ids: list[int] = Field(default_factory=list)
     roles: list[Role] = Field(default_factory=lambda: ["teacher"])
 

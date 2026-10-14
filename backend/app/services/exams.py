@@ -3,7 +3,7 @@ from collections import defaultdict
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Exam, ExamSchool, ExamSlot, Participation
+from app.models import Exam, ExamEvent, ExamSchool, ExamSlot, Participation
 from app.schemas.exam import ExamRead, SlotRead, Structure
 from app.services.scoring import effective_structure
 
@@ -11,6 +11,12 @@ from app.services.scoring import effective_structure
 def read_exams(session: Session, exams: list[Exam]) -> list[ExamRead]:
     if not exams:
         return []
+    event_ids = {e.event_id for e in exams if e.event_id is not None}
+    event_themes = dict(
+        session.execute(
+            select(ExamEvent.id, ExamEvent.theme_key).where(ExamEvent.id.in_(event_ids))
+        ).all()
+    )
     counts = (
         select(Participation.slot_id, func.count().label("booked"))
         .where(Participation.status != "cancelled")
@@ -42,6 +48,7 @@ def read_exams(session: Session, exams: list[Exam]) -> list[ExamRead]:
         ExamRead.model_validate(e).model_copy(
             update={
                 "slots": event_slots[e.event_id],
+                "theme_key": event_themes.get(e.event_id),
                 "structure_data": (
                     Structure.model_validate(structure)
                     if (structure := effective_structure(session, e)) is not None

@@ -22,10 +22,10 @@ def import_teachers(client):
     assert applied.status_code == 200, applied.text
 
 
-def teacher_headers(client, first_name, middle_name):
+def teacher_headers(client, last_name, first_name):
     response = client.post(
         "/api/teacher/login",
-        json={"first_name": first_name, "middle_name": middle_name, "code": "123456"},
+        json={"last_name": last_name, "first_name": first_name, "code": "123456"},
     )
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['token']}"}

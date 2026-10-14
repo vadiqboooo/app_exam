@@ -90,6 +90,7 @@ class SlotRead(Schema):
 class ExamRead(Schema):
     id: int
     event_id: int | None = None
+    theme_key: str | None = None
     format: str | None = None
     slots: list[SlotRead] = Field(default_factory=list)
     type: str

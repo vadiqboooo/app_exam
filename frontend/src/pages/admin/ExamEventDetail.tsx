@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, Eye, Search } from 'lucide-react';
+import { ArrowLeft, Eye, Printer, Search } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useWorkspace } from '../../layouts/Workspace';
@@ -12,6 +12,8 @@ import { ExamForm } from '../../components/ExamForm';
 import { DataTable } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { EventVariants } from '../../components/EventVariants';
+import { useThemeSettings } from '../../halloween/theme';
+import { PrintCounts } from '../../components/PrintCounts';
 import { useEventVariants } from '../../lib/useEventVariants';
 import { examSubject } from '../../lib/format';
 import { plural, summarize } from '../../lib/adminEvents';
@@ -60,7 +62,9 @@ export function ExamEventDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { data, refresh } = useWorkspace();
+  const { refresh: refreshThemes } = useThemeSettings();
   const [editing, setEditing] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [params] = useSearchParams();
   const [tab, setTab] = useState<Tab>(params.get('tab') === 'variants' ? 'variants' : 'sessions');
@@ -113,6 +117,10 @@ export function ExamEventDetail() {
         (row.student?.full_name ?? '').toLowerCase().includes(search.toLowerCase()),
     )
     .sort((a, b) => (a.student?.full_name ?? '').localeCompare(b.student?.full_name ?? '', 'ru'));
+  const slotCounts: [string, number][] = exams.map((exam) => [
+    exam.subject,
+    registrations.filter((row) => row.exam.id === exam.id && row.slot?.id === activeSlot?.id).length,
+  ]);
   const peopleRows = registrations
     .filter(
       (row) =>
@@ -139,6 +147,7 @@ export function ExamEventDetail() {
     void closing.run(async () => {
       const payload: ExamEventCreate = {
         title: exams[0].title ?? '',
+        theme_key: exams[0].theme_key,
         draft: false,
         registration_open_at:
           exams[0].registration_open_at && new Date(exams[0].registration_open_at) < new Date()
@@ -222,6 +231,9 @@ export function ExamEventDetail() {
               Закрыть запись
             </Button>
           )}
+          <Button variant="secondary" className="ad-print-btn" onClick={() => setPrinting(true)}>
+            К печати
+          </Button>
           <Button onClick={exportLists} disabled={!registrations.length}>
             Выгрузить списки
           </Button>
@@ -278,6 +290,29 @@ export function ExamEventDetail() {
           ) : (
             <div className="panel">
               <EmptyState title="У пробника нет сеансов" text="Добавьте школы и время через «Изменить»." />
+            </div>
+          )}
+          {activeSlot && (
+            <div className="ad-print-bar">
+              <span className="ad-print-icon">
+                <Printer size={18} />
+              </span>
+              <span className="ad-print-text">
+                <strong>
+                  К печати на этот сеанс:{' '}
+                  {plural(
+                    slotCounts.reduce((sum, [, count]) => sum + count, 0),
+                    'работа',
+                    'работы',
+                    'работ',
+                  )}
+                </strong>
+                <small>
+                  {activeSlot.school_name}, {slotLabel(activeSlot.starts_at)} ·{' '}
+                  {slotCounts.map(([name, count]) => `${name.split(' ')[0]} ${count}`).join(', ')}
+                </small>
+              </span>
+              <Button onClick={() => setPrinting(true)}>Посмотреть по предметам</Button>
             </div>
           )}
           {activeSlot && (
@@ -447,12 +482,21 @@ export function ExamEventDetail() {
         />
       )}
 
+      {printing && (
+        <PrintCounts
+          exams={exams}
+          registrations={registrations.map((row) => ({ examId: row.exam.id, slot: row.slot }))}
+          slots={slots}
+          activeSlot={activeSlot}
+          onClose={() => setPrinting(false)}
+        />
+      )}
       {editing && (
         <ExamForm
           exams={exams}
           onClose={() => setEditing(false)}
           onCreated={async () => {
-            await refresh();
+            await Promise.all([refresh(), refreshThemes()]);
             setEditing(false);
           }}
         />

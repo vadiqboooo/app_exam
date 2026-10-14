@@ -23,9 +23,14 @@ router = APIRouter(
 )
 
 
-def _parts(name: str) -> tuple[str, str]:
-    parts = name.split(maxsplit=1)
-    return parts[0], parts[1] if len(parts) > 1 else ""
+def _parts(name: str) -> tuple[str, str, str]:
+    parts = name.split()
+    if len(parts) >= 3:
+        return parts[0], parts[1], " ".join(parts[2:])
+    if len(parts) == 2:
+        patronymic = parts[1].casefold().endswith(("ич", "вна", "ична", "оглы", "кызы"))
+        return ("", parts[0], parts[1]) if patronymic else (parts[0], parts[1], "")
+    return "", parts[0] if parts else "", ""
 
 
 def _utc(value):
@@ -33,13 +38,15 @@ def _utc(value):
 
 
 def _read(teacher: Staff, group_ids: list[int]) -> dict:
-    first_name, middle_name = _parts(teacher.name)
+    last_name, first_name, middle_name = _parts(teacher.name)
     return {
         "id": teacher.id,
         "name": teacher.name,
+        "last_name": last_name,
         "first_name": first_name,
         "middle_name": middle_name,
         "roles": teacher.roles,
+        "is_active": teacher.is_active,
         "group_ids": group_ids,
         "has_code": teacher.has_code,
         "locked_until": _utc(teacher.locked_until),
@@ -48,7 +55,7 @@ def _read(teacher: Staff, group_ids: list[int]) -> dict:
 
 
 def _teacher_name(data: TeacherWrite) -> tuple[str, str]:
-    name = " ".join(f"{data.first_name} {data.middle_name}".split())
+    name = " ".join(f"{data.last_name} {data.first_name} {data.middle_name}".split())
     return name, normalize_name(name)
 
 

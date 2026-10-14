@@ -100,7 +100,7 @@ def test_student_cannot_manage_codes(client, engine):
 
 def test_teacher_code_flow_and_admin_reset(client, engine):
     seed(engine)
-    login = {"first_name": "Екатерина", "middle_name": "Сергеевна"}
+    login = {"last_name": "Екатерина", "first_name": "Сергеевна"}
     assert client.post("/api/teacher/login", json=login).json() == {"status": "code_new"}
     ok = client.post("/api/teacher/login", json={**login, "code": "111111"})
     assert ok.status_code == 200 and ok.json()["status"] == "ok"

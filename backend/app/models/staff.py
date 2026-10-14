@@ -17,6 +17,7 @@ class Staff(AccessCodeMixin, Base):
     password_hash: Mapped[str]
     # Legacy column: every employee is stored as «teacher»; the real roles are the flags below.
     role: Mapped[str]
+    is_active: Mapped[bool] = mapped_column(default=True, server_default=true())
     is_teacher: Mapped[bool] = mapped_column(default=True, server_default=true())
     is_admin: Mapped[bool] = mapped_column(default=False, server_default=false())
     is_responsible: Mapped[bool] = mapped_column(default=False, server_default=false())

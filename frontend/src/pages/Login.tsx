@@ -38,7 +38,6 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
   const [role, setRole] = useState<Role>('student');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [middleName, setMiddleName] = useState('');
   const [name, setName] = useState('');
   const [key, setKey] = useState('');
   const [step, setStep] = useState<Step>('name');
@@ -77,7 +76,7 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
         const result =
           role === 'student'
             ? await api.student.login(lastName, firstName, sendCode)
-            : await api.teacher.login(firstName, middleName, sendCode);
+            : await api.teacher.login(lastName, firstName, sendCode);
         if (result.status !== 'ok') {
           setStep(result.status === 'code_new' ? 'create' : 'code');
           return;
@@ -197,7 +196,7 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
           {step !== 'name' && (role === 'student' || role === 'teacher') ? (
             <>
               <div className="lg-who">
-                {role === 'student' ? `${lastName} ${firstName}` : `${firstName} ${middleName}`}
+                {lastName} {firstName}
               </div>
               <div className="lg-code-field">
                 <span>{step === 'create' ? 'Новый код' : 'Код доступа'}</span>
@@ -241,6 +240,16 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
           ) : role === 'teacher' ? (
             <>
               <label>
+                Фамилия
+                <input
+                  autoComplete="family-name"
+                  placeholder="Иванова"
+                  required
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                />
+              </label>
+              <label>
                 Имя
                 <input
                   autoComplete="given-name"
@@ -248,16 +257,6 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
                   required
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
-                />
-              </label>
-              <label>
-                Отчество
-                <input
-                  autoComplete="additional-name"
-                  placeholder="Сергеевна"
-                  required
-                  value={middleName}
-                  onChange={(e) => setMiddleName(e.target.value)}
                 />
               </label>
             </>
