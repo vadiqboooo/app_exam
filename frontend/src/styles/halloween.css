@@ -2491,3 +2491,85 @@ body:has(.lg-page.lg-hw) #root {
   background: rgba(255, 122, 26, 0.16);
   color: var(--hw-orange-soft);
 }
+
+/* ---------- student sign-up in the Halloween theme (29r) ---------- */
+.lg-page.lg-hw .lg-title h2 {
+  font-family: Unbounded, Manrope, sans-serif;
+  font-size: 25px;
+  line-height: 1.2;
+  font-weight: 800;
+}
+.lg-page.lg-hw .lg-title h2 em {
+  font-style: normal;
+  color: #ff7a1a;
+}
+.lg-page.lg-hw .lg-steps span {
+  background: rgba(255, 255, 255, 0.18);
+}
+.lg-page.lg-hw .lg-steps span.is-on {
+  background: #ff7a1a;
+}
+.lg-page.lg-hw .lg-step-label {
+  font-weight: 800;
+  color: var(--hw-orange-soft);
+}
+.lg-page.lg-hw .lg-agree {
+  color: var(--hw-ink);
+}
+.lg-page.lg-hw .lg-agree input {
+  accent-color: #ff7a1a;
+}
+.lg-page.lg-hw .lg-link {
+  color: #ff9a3c;
+}
+.lg-page.lg-hw .lg-done {
+  border: 2px solid #ff7a1a;
+  background: rgba(32, 16, 58, 0.88);
+  box-shadow: 0 0 34px rgba(255, 122, 26, 0.22);
+}
+.lg-page.lg-hw .lg-done h2 {
+  font-family: Unbounded, Manrope, sans-serif;
+  color: var(--hw-ink);
+}
+.lg-page.lg-hw .lg-done p {
+  color: var(--hw-soft);
+}
+.lg-page.lg-hw .lg-done b {
+  color: var(--hw-ink);
+}
+.lg-page.lg-hw .lg-pumpkin {
+  animation: hw-bob 2.4s ease-in-out infinite;
+}
+@keyframes hw-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(3deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lg-page.lg-hw .lg-pumpkin {
+    animation: none;
+  }
+}
+.lg-page.lg-hw .lg-signup button {
+  border-color: #ff7a1a;
+  background: transparent;
+  color: #ffd9a0;
+}
+.lg-page.lg-hw .lg-signup b {
+  color: var(--hw-ink);
+}
+
+/* applicant's booking waits for the administrator's call */
+.hw-exam .pending-note.hw-pending {
+  margin: 0 16px 12px;
+  border-color: rgba(255, 122, 26, 0.5);
+  background: rgba(255, 122, 26, 0.14);
+  color: var(--hw-orange-soft);
+}
+.hw-exam .pending-note.hw-pending b {
+  color: var(--hw-ink);
+}

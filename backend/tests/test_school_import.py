@@ -141,6 +141,10 @@ def test_run_applies_every_file_in_one_confirmed_transaction(client):
     assert again["report"]["teachers"]["new"] == 0
 
 
+def schools(upload):
+    return {"schools": [f"Школа {index + 1}" for index in range(len(upload))]}
+
+
 def test_multiple_group_rosters_replace_the_three_old_import_files(client):
     upload = [
         ("rosters", ("school-one.xlsx", ROSTER_ONE, XLSX)),
@@ -152,6 +156,7 @@ def test_multiple_group_rosters_replace_the_three_old_import_files(client):
             ("files", ("school-one.xlsx", ROSTER_ONE, XLSX)),
             ("files", ("school-two.xlsx", ROSTER_TWO, XLSX)),
         ],
+        data={"schools": ["Школа 1", "Лицей 2"]},
     )
     assert step.status_code == 200, step.text
     assert step.json()["files"] == 2
@@ -159,7 +164,7 @@ def test_multiple_group_rosters_replace_the_three_old_import_files(client):
     assert step.json()["groups"]["total"] == 3
     assert step.json()["students"]["total"] == 4
 
-    preview = client.post("/api/imports/run/preview", files=upload)
+    preview = client.post("/api/imports/run/preview", files=upload, data=schools(upload))
     assert preview.status_code == 200, preview.text
     body = preview.json()
     assert body["report"]["teachers"] == {
@@ -174,7 +179,7 @@ def test_multiple_group_rosters_replace_the_three_old_import_files(client):
     applied = client.post(
         "/api/imports/run/apply",
         files=upload,
-        data={"confirmation": body["confirmation"]},
+        data={"confirmation": body["confirmation"], **schools(upload)},
     )
     assert applied.status_code == 200, applied.text
     pupils = {row["full_name"]: row for row in client.get("/api/students").json()}
@@ -199,13 +204,13 @@ def test_multiple_group_rosters_replace_the_three_old_import_files(client):
     # Every run is a complete snapshot across all selected school files. Pupils absent
     # from the next snapshot are archived, while the pupils still present remain active.
     next_upload = [("rosters", ("school-two.xlsx", ROSTER_TWO, XLSX))]
-    next_preview = client.post("/api/imports/run/preview", files=next_upload).json()
+    next_preview = client.post("/api/imports/run/preview", files=next_upload, data=schools(next_upload)).json()
     assert next_preview["report"]["students"]["left"] == 2
     assert next_preview["report"]["teachers"]["archived"] == 2
     archived = client.post(
         "/api/imports/run/apply",
         files=next_upload,
-        data={"confirmation": next_preview["confirmation"]},
+        data={"confirmation": next_preview["confirmation"], **schools(next_upload)},
     )
     assert archived.status_code == 200, archived.text
     pupils = {row["full_name"]: row for row in client.get("/api/students").json()}
@@ -225,12 +230,12 @@ def test_multiple_group_rosters_replace_the_three_old_import_files(client):
 
     # Reappearing in a later complete snapshot restores a teacher automatically.
     return_upload = [("rosters", ("school-one.xlsx", ROSTER_ONE, XLSX))]
-    return_preview = client.post("/api/imports/run/preview", files=return_upload).json()
+    return_preview = client.post("/api/imports/run/preview", files=return_upload, data=schools(return_upload)).json()
     assert return_preview["report"]["teachers"]["returned"] == 2
     returned = client.post(
         "/api/imports/run/apply",
         files=return_upload,
-        data={"confirmation": return_preview["confirmation"]},
+        data={"confirmation": return_preview["confirmation"], **schools(return_upload)},
     )
     assert returned.status_code == 200, returned.text
     teachers = {row["name"]: row for row in client.get("/api/teachers").json()}
@@ -241,11 +246,11 @@ def test_multiple_group_rosters_replace_the_three_old_import_files(client):
 
 def test_complete_roster_does_not_infer_teacher_from_group_title(client):
     upload = [("rosters", ("school.xlsx", ROSTER_WITHOUT_TEACHER, XLSX))]
-    preview = client.post("/api/imports/run/preview", files=upload).json()
+    preview = client.post("/api/imports/run/preview", files=upload, data=schools(upload)).json()
     applied = client.post(
         "/api/imports/run/apply",
         files=upload,
-        data={"confirmation": preview["confirmation"]},
+        data={"confirmation": preview["confirmation"], **schools(upload)},
     )
     assert applied.status_code == 200, applied.text
     assert client.get("/api/teachers").json() == []
@@ -296,7 +301,7 @@ def test_legacy_results_are_linked_by_full_name_and_never_published(client, engi
         **files(students=STUDENTS),
         "legacy": ("old.db", legacy, "application/octet-stream"),
     }
-    preview = client.post("/api/imports/run/preview", files=upload).json()
+    preview = client.post("/api/imports/run/preview", files=upload, data=schools(upload)).json()
     assert preview["report"]["legacy"] == {
         "works": 3,
         "linked": 1,
@@ -305,7 +310,7 @@ def test_legacy_results_are_linked_by_full_name_and_never_published(client, engi
         "students": 1,
     }
     applied = client.post(
-        "/api/imports/run/apply", files=upload, data={"confirmation": preview["confirmation"]}
+        "/api/imports/run/apply", files=upload, data={"confirmation": preview["confirmation"], **schools(upload)}
     )
     assert applied.status_code == 200, applied.text
 
@@ -328,3 +333,42 @@ def test_rejects_files_that_are_not_what_the_step_expects(client):
         client.post("/api/imports/teachers/preview", files=files(file=no_name)).status_code == 422
     )
     assert client.post("/api/imports/run/preview").status_code == 422
+
+
+def test_reimport_sets_school_per_file_without_duplicates(client):
+    upload = [
+        ("rosters", ("school-one.xlsx", ROSTER_ONE, XLSX)),
+        ("rosters", ("school-two.xlsx", ROSTER_TWO, XLSX)),
+    ]
+    # The school is required for every group file.
+    assert client.post("/api/imports/run/preview", files=upload).status_code == 422
+    assert (
+        client.post(
+            "/api/imports/run/preview", files=upload, data={"schools": ["Школа 1"]}
+        ).status_code
+        == 422
+    )
+
+    def run(names):
+        data = {"schools": names}
+        preview = client.post("/api/imports/run/preview", files=upload, data=data).json()
+        done = client.post(
+            "/api/imports/run/apply",
+            files=upload,
+            data={**data, "confirmation": preview["confirmation"]},
+        )
+        assert done.status_code == 200, done.text
+        return preview
+
+    run(["Школа 1", "Лицей 2"])
+    first = {row["full_name"]: row for row in client.get("/api/students").json()}
+    assert first["Орлова Елена"]["school"] == "Лицей 2"
+    assert first["Петрова Мария"]["school"] == "Школа 1"
+
+    # Importing again with other names changes the school of the same pupils, no new rows.
+    again = run(["Гимназия 3", "Лицей 2"])
+    assert again["report"]["students"]["new"] == 0
+    assert again["report"]["students"]["updated"] > 0
+    second = client.get("/api/students").json()
+    assert len(second) == len(first)
+    assert {row["full_name"]: row["school"] for row in second}["Петрова Мария"] == "Гимназия 3"

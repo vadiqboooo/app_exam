@@ -5322,3 +5322,334 @@
 .pc-sum .pc-name {
   font-weight: 800;
 }
+
+/* new student applications (admin) */
+.sc-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid #f0d28f;
+  border-radius: 14px;
+  background: #fff7e0;
+  font-size: 14px;
+  color: #5c3f05;
+}
+.sc-banner > span:nth-child(2) {
+  flex-grow: 1;
+}
+.sc-banner button {
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9px;
+  background: #d98a0b;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.sc-banner-count,
+.sc-count-alert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #d98a0b;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+.sj-pills > button[aria-pressed='true'] .sc-count-alert {
+  background: #fff;
+  color: #8a5a06;
+}
+.sc-row-apps {
+  grid-template-columns: 1.5fr 1.6fr 1fr 2.2fr 0.9fr 1.6fr 1.9fr;
+}
+.sc-bookings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sc-bookings > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sc-bookings b {
+  font-size: 14px;
+  color: #292637;
+}
+.sc-bookings small {
+  font-size: 12px;
+  color: #6a6679;
+}
+.sc-row-apps select {
+  height: 38px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 1.5px solid #dcd9e6;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 14px;
+  color: #292637;
+}
+.sc-row-apps .sc-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sc-row-apps .sc-name small {
+  font-size: 12px;
+  font-weight: 400;
+  color: #6a6679;
+}
+.sc-tel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.sc-act-pair {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.sc-action-primary {
+  border: 0;
+  background: #7357db;
+  color: #fff;
+}
+.sc-apps-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 20px;
+  border-bottom: 1px solid #f0eff5;
+}
+.sc-apps-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+}
+.sc-apps-head span {
+  font-size: 13px;
+  color: #6a6679;
+}
+.sc-apps-empty {
+  padding: 40px 20px;
+  text-align: center;
+  font-size: 15px;
+  color: #6a6679;
+}
+
+.ad-pending {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fff7e0;
+  color: #8a5a06;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* add student dialog */
+.sc-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.as-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.as-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+}
+.as-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #4a4659;
+}
+.as-grid label small {
+  font-weight: 500;
+  color: #8a8699;
+}
+.as-grid input[aria-invalid='true'] {
+  border: 2px solid #b3261e;
+}
+.as-grid [role='alert'] {
+  font-size: 12px;
+  font-weight: 600;
+  color: #b3261e;
+}
+.as-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.as-block > span {
+  font-size: 13px;
+  font-weight: 700;
+  color: #4a4659;
+}
+.as-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.as-chips button {
+  height: 36px;
+  padding: 0 14px;
+  border: 1.5px solid #dcd9e6;
+  border-radius: 999px;
+  background: #fff;
+  color: #292637;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.as-chips button[aria-pressed='true'] {
+  border-color: #7357db;
+  background: #7357db;
+  color: #fff;
+}
+.as-codes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.as-codes button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1.5px solid #dcd9e6;
+  border-radius: 12px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+.as-codes button[aria-checked='true'] {
+  border: 2px solid #7357db;
+  background: #f4f0fe;
+}
+.as-codes strong {
+  font-size: 14px;
+  font-weight: 800;
+  color: #292637;
+}
+.as-codes span {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #6a6679;
+}
+
+.imp-school {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 220px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #4a4659;
+}
+.imp-school input {
+  height: 38px;
+  padding: 0 10px;
+  border: 1.5px solid #dcd9e6;
+  border-radius: 9px;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  color: #292637;
+}
+
+.as-search {
+  height: 40px;
+  padding: 0 12px;
+  border: 1.5px solid #dcd9e6;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 14px;
+  color: #292637;
+}
+.as-picked {
+  font-weight: 600;
+  color: #7357db;
+}
+.as-none {
+  font-size: 13px;
+  color: #6a6679;
+}
+
+/* tile of new registration applications on the administrator home */
+.db-apps {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 18px;
+  border: 1px solid #eae9f1;
+  border-radius: 16px;
+  background: #fff;
+  color: inherit;
+  text-decoration: none;
+}
+.db-apps.is-new {
+  border-color: #f0d28f;
+  background: #fff7e0;
+}
+.db-apps-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 10px;
+  border-radius: 12px;
+  background: #eceaf3;
+  color: #4a4659;
+  font-size: 20px;
+  font-weight: 800;
+}
+.db-apps.is-new .db-apps-num {
+  background: #d98a0b;
+  color: #fff;
+}
+.db-apps-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.db-apps-text strong {
+  font-size: 15px;
+  font-weight: 800;
+  color: #292637;
+}
+.db-apps-text small {
+  font-size: 13px;
+  color: #6a6679;
+}
+.db-apps.is-new .db-apps-text small {
+  color: #5c3f05;
+}

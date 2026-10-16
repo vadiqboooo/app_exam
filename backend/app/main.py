@@ -83,6 +83,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code=503, content={"detail": "База недоступна. Проверьте миграции"}
         )
 
+    @app.middleware("http")
+    async def cache_headers(request: Request, call_next):
+        """A new version must reach everybody: the page is always re-checked, while the
+        built files carry a hash in their name and can be kept for good."""
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/assets/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif not path.startswith("/api") and response.headers.get("content-type", "").startswith(
+            "text/html"
+        ):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     if STATIC_ROOT.is_dir():
         app.mount("/", StaticFiles(directory=STATIC_ROOT, html=True), name="frontend")
     return app

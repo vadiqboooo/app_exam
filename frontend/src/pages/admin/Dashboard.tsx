@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { ChevronRight, Plus } from 'lucide-react';
-import { loadSession } from '../../api/client';
+import { api, loadSession } from '../../api/client';
+import { useLoad } from '../../hooks/useLoad';
 import { useWorkspace } from '../../layouts/Workspace';
 import { codeState } from '../../lib/accessCode';
 import { groupExams } from '../../lib/format';
@@ -27,8 +28,12 @@ const list = (items: string[]) =>
 
 type Tone = 'amber' | 'violet' | 'slate';
 
+const loadApplications = () => api.students.applications();
+
 export function Dashboard() {
   const { data } = useWorkspace();
+  // Asked afresh every time the page opens, so a registration that has just come in is seen.
+  const pending = useLoad(loadApplications).data ?? [];
   const events = groupExams(data.exams)
     .map((subjects) => ({ subjects, info: summarize(subjects, data.participations) }))
     .sort((a, b) => a.info.start.localeCompare(b.info.start));
@@ -139,6 +144,15 @@ export function Dashboard() {
       href: '/exams/new',
       tone: 'slate',
       hot: false,
+    },
+    pending.length > 0 && {
+      num: pending.length,
+      title: 'Новые заявки на регистрацию',
+      sub: 'Позвоните ученикам, назначьте класс и группу и подтвердите',
+      cta: 'Разобрать',
+      href: '/school/students?tab=new',
+      tone: 'amber',
+      hot: true,
     },
     prepared &&
       withoutVariants.length > 0 && {
@@ -257,6 +271,22 @@ export function Dashboard() {
           Создать пробник
         </Link>
       </div>
+
+      <Link to="/school/students?tab=new" className={pending.length ? 'db-apps is-new' : 'db-apps'}>
+        <span className="db-apps-num">{pending.length}</span>
+        <span className="db-apps-text">
+          <strong>{pending.length ? 'Новые заявки на регистрацию' : 'Новых заявок нет'}</strong>
+          <small>
+            {pending.length
+              ? `${list(pending.map((item) => item.full_name))} — позвоните и подтвердите запись`
+              : 'Всё разобрано: новые регистрации появятся здесь'}
+          </small>
+        </span>
+        <span className="db-todo-cta">
+          {pending.length ? 'Разобрать' : 'Открыть'}
+          <ChevronRight size={16} />
+        </span>
+      </Link>
 
       {nearest ? (
         <section className="db-card">

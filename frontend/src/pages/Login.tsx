@@ -8,10 +8,11 @@ import { ErrorNotice } from '../components/ErrorNotice';
 import { CodeInput } from '../components/CodeInput';
 import { roleNames } from '../layouts/AppLayout';
 import { LoginChoice } from '../halloween/LoginChoice';
+import { StudentSignup } from './StudentSignup';
 import { CREDIT } from '../halloween/Art';
 import { useHalloween } from '../halloween/theme';
 
-type Door = 'choose' | 'student' | 'staff';
+type Door = 'choose' | 'student' | 'staff' | 'signup';
 // name: имя; code: вход с личным кодом; create: первый вход, придумывание кода.
 type Step = 'name' | 'code' | 'create';
 
@@ -114,6 +115,7 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
 
   if (door === 'choose')
     return <LoginChoice onStudent={() => open('student')} onStaff={() => open('staff')} />;
+  if (door === 'signup') return <StudentSignup onBack={() => open('student')} onLogin={onLogin} />;
 
   const student = door === 'student';
   return (
@@ -300,6 +302,17 @@ export function Login({ onLogin }: { onLogin: (session: Session) => void }) {
                   ? 'Продолжить'
                   : 'Войти'}
           </Button>
+          {student && step === 'name' && (
+            <div className="lg-signup">
+              <span>
+                <b>Ещё не учитесь в школе «Гарри»?</b> Оставьте заявку — администратор подтвердит запись.
+              </span>
+              <button type="button" disabled={busy} onClick={() => open('signup')}>
+                Зарегистрироваться
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          )}
           <p className="lg-help">
             {step === 'create'
               ? 'Запомните код: он понадобится при каждом входе.'

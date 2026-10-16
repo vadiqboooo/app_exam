@@ -201,7 +201,7 @@ export function ExamForm({
               </label>
               <label className="full-width">
                 Тема оформления
-                <select name="theme" defaultValue={exams?.[0].theme_key ?? ''}>
+                <select name="theme" key={themes.length} defaultValue={exams?.[0].theme_key ?? ''}>
                   <option value="">Обычное оформление</option>
                   {themes.map((theme) => (
                     <option value={theme.key} key={theme.key}>

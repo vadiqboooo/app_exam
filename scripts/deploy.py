@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["paramiko>=3.4", "nodejs-wheel-binaries>=22"]
+# dependencies = ["paramiko>=3.4", "nodejs-wheel-binaries>=22", "keyring>=25"]
 # ///
 """Разворачивает «Гарри — пробники» на VPS (Ubuntu / Debian) одной командой.
 
@@ -11,9 +11,15 @@
 первого входа. Его можно запускать повторно: он обновит приложение, не трогая данные и код доступа.
 Домен потом добавляется повторным запуском с `--domain ваш.домен`.
 
+Запущенный без параметров, скрипт показывает меню управления приложением на сервере: обновить из
+git, показать или сменить код доступа, посмотреть состояние и журнал, выключить, включить, удалить.
+Доступ к серверу запоминается на этом компьютере: адрес в scripts/.deploy.json, пароль в системном
+хранилище паролей (Windows: «Диспетчер учётных данных»). Забыть его: `--forget`.
+
 Если на сервере уже работает другой проект, скрипт его не трогает: смотрит занятые порты,
 не включает файрвол сам и не переписывает чужие сайты nginx. Приложение выключается и
-удаляется тем же скриптом: `--stop`, `--start`, `--uninstall`.
+удаляется тем же скриптом: `--stop`, `--start`, `--uninstall`. Остальное без меню:
+`--update`, `--rollback`, `--show-code`, `--set-code`, `--status`.
 """
 
 from __future__ import annotations
@@ -24,6 +30,7 @@ import fnmatch
 import getpass
 import hashlib
 import http.server
+import io
 import ipaddress
 import json
 import os
@@ -510,10 +517,20 @@ class Config:
     app_port: int = DEFAULT_APP_PORT  # set from the plan once it is made
     timeweb_token: str | None = None  # lets the script create the A record of the domain
     replace_dns: bool = False  # replace a record that already points elsewhere
+    new_code: str | None = None  # the access code to set (action set_code)
+    remember: bool = False  # keep the password of the server after a successful connection
+    password_saved: bool = False  # the password came from the system store
+    target: str | None = None  # the git version to go back to (action rollback)
+    restore_db: bool = False  # a rollback may bring back the database of that version
+    force: bool = False  # deploy even if the server has a newer version
 
     @property
     def secrets(self) -> list[str]:
-        return [v for v in (self.password, self.yandex_token, self.timeweb_token) if v]
+        return [
+            v
+            for v in (self.password, self.yandex_token, self.timeweb_token, self.new_code)
+            if v
+        ]
 
 
 def load_state() -> dict:
@@ -537,6 +554,65 @@ def save_state(cfg: Config) -> None:
         pass
 
 
+KEYRING_SERVICE = "probnik-deploy"
+
+
+def _keyring():
+    try:
+        import keyring
+    except ImportError:
+        return None
+    return keyring
+
+
+def saved_password(host: str, user: str) -> str | None:
+    """The server password kept by the system (Windows Credential Manager), not in a file."""
+    store = _keyring()
+    if store is None:
+        return None
+    try:
+        return store.get_password(KEYRING_SERVICE, f"{user}@{host}") or None
+    except Exception:  # a locked or missing store must not stop the script
+        return None
+
+
+def remember_password(host: str, user: str, password: str) -> bool:
+    store = _keyring()
+    if store is None:
+        return False
+    try:
+        store.set_password(KEYRING_SERVICE, f"{user}@{host}", password)
+        return True
+    except Exception:
+        return False
+
+
+def forget_password(host: str, user: str) -> bool:
+    store = _keyring()
+    if store is None:
+        return False
+    try:
+        store.delete_password(KEYRING_SERVICE, f"{user}@{host}")
+        return True
+    except Exception:
+        return False
+
+
+def save_server(cfg: Config) -> None:
+    """Which server this is, for the next run. No secrets: the password is in the system store."""
+    state = load_state()
+    state.update({"host": cfg.host, "user": cfg.user, "port": cfg.port})
+    try:
+        STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def valid_access_code(value: str) -> bool:
+    """Letters, digits and . _ ~ - only: the code goes into the service's environment file."""
+    return bool(re.fullmatch(r"[A-Za-z0-9_.~-]{8,64}", value))
+
+
 def ask(
     prompt: str, *, default: str | None = None, check=None, secret: bool = False, error: str = ""
 ) -> str:
@@ -552,8 +628,8 @@ def ask(
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Развёртывание «Гарри — пробники» на VPS")
     parser.add_argument("--host", help="IP-адрес (или имя) VPS")
-    parser.add_argument("--user", default="root", help="пользователь SSH (нужен root)")
-    parser.add_argument("--port", type=int, default=22, help="порт SSH")
+    parser.add_argument("--user", help="пользователь SSH (нужен root; по умолчанию root)")
+    parser.add_argument("--port", type=int, help="порт SSH (по умолчанию 22)")
     parser.add_argument("--domain", help="домен для HTTPS (его A-запись должна указывать на VPS)")
     parser.add_argument("--email", help="e-mail для сертификата Let's Encrypt")
     parser.add_argument("--yandex-client-id", help="ID приложения Яндекса (oauth.yandex.ru)")
@@ -582,10 +658,28 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         ("--stop", "stop", "выключить приложение на сервере (данные останутся)"),
         ("--start", "start", "включить выключенное приложение"),
         ("--uninstall", "uninstall", "удалить приложение с сервера (данные сохраняются)"),
+        ("--update", "update", "обновить приложение: получить обновления из git и выложить"),
+        ("--rollback", "rollback", "вернуть прошлую версию из git (см. --to)"),
+        ("--show-code", "show_code", "показать код доступа администратора с сервера"),
+        ("--set-code", "set_code", "задать новый код доступа (см. --code)"),
+        ("--status", "status", "показать состояние приложения и последние строки журнала"),
+        ("--forget", "forget", "забыть сохранённый пароль сервера на этом компьютере"),
     ):
         parser.add_argument(flag, dest="action", action="store_const", const=name, help=text)
     parser.add_argument(
         "--delete-data", action="store_true", help="при удалении стереть и данные приложения"
+    )
+    parser.add_argument(
+        "--code", help="новый код доступа для --set-code (без него будет создан случайный)"
+    )
+    parser.add_argument("--to", help="версия git для --rollback: тег, ветка или хеш коммита")
+    parser.add_argument(
+        "--restore-db",
+        action="store_true",
+        help="при откате вернуть и базу данных той версии (данные с тех пор пропадут)",
+    )
+    parser.add_argument(
+        "--force", action="store_true", help="обновить, даже если на сервере версия новее"
     )
     return parser.parse_args(argv)
 
@@ -593,46 +687,98 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
 def collect(args: argparse.Namespace) -> Config:
     state = load_state()
     say(paint("Развёртывание «Гарри — пробники» на VPS", "1"))
-    say("Нужен VPS с Ubuntu или Debian и доступ root по паролю. Пароль нигде не сохраняется.\n")
+    say(
+        "Нужен VPS с Ubuntu или Debian и доступ root по паролю. Доступ можно запомнить: пароль\n"
+        "хранится в системном хранилище паролей этого компьютера, не в файле.\n"
+    )
 
-    host = args.host or ask(
-        "IP-адрес VPS",
-        default=state.get("host"),
-        check=valid_host,
-        error="Введите IP-адрес, например 203.0.113.10",
+    host = (
+        args.host
+        or (state.get("host") if args.yes else None)
+        or ask(
+            "IP-адрес VPS",
+            default=state.get("host"),
+            check=valid_host,
+            error="Введите IP-адрес, например 203.0.113.10",
+        )
     )
     if not valid_host(host):
         raise DeployError(f"Неверный адрес VPS: {host}")
+    user = args.user or state.get("user") or "root"
+    port = args.port or state.get("port") or 22
+
+    action = args.action
+    if action is None and not args.yes:
+        say("\n  Что сделать?")
+        say("    1 — обновить приложение (получить обновления из git и выложить на сервер)")
+        say("    2 — вернуть прошлую версию из git (откат)")
+        say("    3 — показать код доступа")
+        say("    4 — задать новый код доступа")
+        say("    5 — состояние приложения и журнал")
+        say("    6 — выключить приложение (данные останутся)")
+        say("    7 — включить выключенное приложение")
+        say("    8 — полное развёртывание или настройка (первая установка, домен, Яндекс)")
+        say("    9 — удалить приложение с сервера")
+        say("    0 — забыть сохранённый пароль сервера на этом компьютере")
+        choice = ask(
+            "Номер",
+            default="1",
+            check=lambda value: value in set("1234567890"),
+            error="Введите цифру от 0 до 9",
+        )
+        action = {
+            "1": "update",
+            "2": "rollback",
+            "3": "show_code",
+            "4": "set_code",
+            "5": "status",
+            "6": "stop",
+            "7": "start",
+            "8": "deploy",
+            "9": "uninstall",
+            "0": "forget",
+        }[choice]
+    action = action or "deploy"
 
     password = os.environ.get("DEPLOY_PASSWORD", "")
-    if not password and not args.dry_run:
+    password_saved = remember = False
+    if not password and action != "forget":
+        password = saved_password(host, user) or ""
+        password_saved = bool(password)
+        if password_saved:
+            say(f"  Использую сохранённый доступ к серверу: {user}@{host}")
+    if not password and not args.dry_run and action != "forget":
         if args.yes:
             raise DeployError("Пароль VPS нужно передать в переменной окружения DEPLOY_PASSWORD")
         password = ask("Пароль root от VPS (ввод не виден)", secret=True)
         if not password:
             raise DeployError("Пароль не введён")
+        remember = ask(
+            "Запомнить доступ к серверу на этом компьютере? Пароль хранится в системном "
+            "хранилище, не в файле [Y/n]",
+            default="y",
+            check=lambda value: value.lower() in {"y", "n", "д", "н", "да", "нет"},
+            error="Ответьте y или n",
+        ).lower() in {"y", "д", "да"}
 
-    action = args.action
-    if action is None and not args.yes:
-        say("\n  Что сделать?")
-        say("    1 — развернуть или обновить приложение")
-        say("    2 — выключить приложение (данные останутся)")
-        say("    3 — включить выключенное приложение")
-        say("    4 — удалить приложение с сервера")
-        choice = ask(
-            "Номер",
-            default="1",
-            check=lambda value: value in {"1", "2", "3", "4"},
-            error="Введите 1, 2, 3 или 4",
-        )
-        action = {"1": "deploy", "2": "stop", "3": "start", "4": "uninstall"}[choice]
-    action = action or "deploy"
     if action != "deploy":
-        # Switching off or removing needs only the server, not the Yandex and domain questions.
+        # Everything but a deployment needs only the server, not the Yandex and domain questions.
+        new_code = args.code
+        if action == "set_code" and new_code is None and not args.yes:
+            new_code = ask(
+                "Новый код доступа (Enter — создать случайный)",
+                check=valid_access_code,
+                error="Код: 8-64 символа, латинские буквы, цифры и . _ ~ -",
+            )
+        new_code = new_code or None
+        if new_code and not valid_access_code(new_code):
+            raise DeployError("Код доступа: 8-64 символа, латинские буквы, цифры и . _ ~ -")
+        if action == "rollback" and args.yes and not args.to:
+            raise DeployError("Укажите версию для отката: --to тег или хеш коммита")
         return Config(
             host=host,
-            port=args.port,
-            user=args.user,
+            port=port,
+            user=user,
             password=password,
             domain=None,
             email=None,
@@ -640,10 +786,16 @@ def collect(args: argparse.Namespace) -> Config:
             yandex_token=None,
             dry_run=args.dry_run,
             yes=args.yes,
-            skip_build=True,
+            skip_build=args.skip_build if action in {"update", "rollback"} else True,
             restore_latest=False,
             action=action,
             delete_data=args.delete_data,
+            new_code=new_code,
+            remember=remember,
+            password_saved=password_saved,
+            target=args.to,
+            restore_db=args.restore_db,
+            force=args.force,
         )
 
     client_id = args.yandex_client_id
@@ -698,9 +850,11 @@ def collect(args: argparse.Namespace) -> Config:
 
     return Config(
         host=host,
-        port=args.port,
-        user=args.user,
+        port=port,
+        user=user,
         password=password,
+        remember=remember,
+        password_saved=password_saved,
         domain=domain,
         email=email,
         yandex_client_id=client_id,
@@ -761,12 +915,23 @@ class Remote:
                 look_for_keys=False,
             )
         except paramiko.AuthenticationException as error:
+            if self.cfg.password_saved:
+                forget_password(self.cfg.host, self.cfg.user)
+                raise DeployError(
+                    "Сервер не принял сохранённый пароль (он удалён): запустите скрипт ещё раз"
+                    " и введите новый"
+                ) from error
             raise DeployError("Сервер не принял логин или пароль") from error
         except (OSError, paramiko.SSHException) as error:
             raise DeployError(
                 f"Не удалось подключиться к {self.cfg.host}:{self.cfg.port}: {error}"
             ) from error
         self.client = client
+        save_server(self.cfg)
+        if self.cfg.remember and remember_password(
+            self.cfg.host, self.cfg.user, self.cfg.password
+        ):
+            say("      доступ к серверу сохранён на этом компьютере")
         key = client.get_transport().get_remote_server_key()
         digest = base64.b64encode(hashlib.sha256(key.asbytes()).digest()).decode().rstrip("=")
         return f"SHA256:{digest}"
@@ -1514,6 +1679,9 @@ def summary(cfg: Config, plan: Plan, api_key: str, https: bool, extra: list[str]
         say("  Домен: когда он будет, создайте A-запись на IP сервера и запустите")
         say("         uv run scripts/deploy.py --domain ваш.домен --email ваш@email")
     say("")
+    say("  Обновить из git: uv run scripts/deploy.py --update")
+    say("  Вернуть прошлую версию: uv run scripts/deploy.py --rollback")
+    say("  Меню управления: uv run scripts/deploy.py   (или двойной щелчок по deploy.cmd)")
     say("  Выключить: uv run scripts/deploy.py --stop   (данные останутся)")
     say("  Включить:  uv run scripts/deploy.py --start")
     say("  Удалить:   uv run scripts/deploy.py --uninstall")
@@ -1755,6 +1923,551 @@ def manage(cfg: Config) -> int:
         remote.close()
 
 
+# ---------------------------------------------------------------- git, update, code, status
+
+
+def git(root: Path, *args: str, timeout: int = 180) -> subprocess.CompletedProcess | None:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},  # never wait for a password here
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def git_out(root: Path, *args: str) -> str | None:
+    result = git(root, *args)
+    return result.stdout.strip() if result is not None and result.returncode == 0 else None
+
+
+def fetch_updates(root: Path) -> tuple[str | None, list[str]]:
+    """Takes what was pushed to git. Returns the version that is going to the server and notes."""
+    if git_out(root, "rev-parse", "--is-inside-work-tree") != "true":
+        return None, ["это не git-репозиторий или git не установлен: беру файлы с этого компьютера"]
+    notes: list[str] = []
+    before = git_out(root, "rev-parse", "HEAD")
+    upstream = git_out(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    dirty = bool(git_out(root, "status", "--porcelain", "--untracked-files=no"))
+    if upstream is None:
+        notes.append("у текущей ветки нет связи с git-сервером: обновления не получены")
+    elif dirty:
+        notes.append(
+            "на этом компьютере есть незакоммиченные изменения: git pull не делаю, "
+            "на сервер уйдут файлы как они лежат сейчас"
+        )
+    else:
+        result = git(root, "pull", "--ff-only")
+        if result is None or result.returncode != 0:
+            detail = ((result.stdout + result.stderr) if result else "git не отвечает").strip()
+            tail = "\n".join(detail.splitlines()[-8:])
+            raise DeployError(f"Не удалось получить обновления из git:\n{tail}")
+        after = git_out(root, "rev-parse", "HEAD")
+        if after != before:
+            log = git_out(root, "log", "--oneline", "-n", "10", f"{before}..{after}") or ""
+            notes.append(f"получены обновления из git ({upstream}), последние изменения:")
+            notes += [f"  {line}" for line in log.splitlines()]
+        else:
+            notes.append(f"в git нет новых изменений ({upstream}): версия та же")
+        ahead = git_out(root, "rev-list", "--count", "@{u}..HEAD")
+        if ahead and ahead != "0":
+            notes.append(f"{ahead} коммитов ещё не отправлены в git, но на сервер уйдут")
+    version = git_out(root, "rev-parse", "--short", "HEAD")
+    if version and dirty:
+        version += "+правки"
+    return version, notes
+
+
+def with_server(cfg: Config, work, failure: str) -> int:
+    remote = Remote(cfg)
+    try:
+        return work(remote)
+    except DeployError as error:
+        say(paint(f"\n{failure}: {error}", "31"))
+        return 1
+    except KeyboardInterrupt:
+        say(paint("\nПрервано.", "33"))
+        return 130
+    finally:
+        remote.close()
+
+
+def box(title: str, lines: list[str]) -> None:
+    line = "═" * 62
+    say("\n" + paint(line, "32"))
+    say(paint(f"  {title}", "1;32"))
+    for text in lines:
+        say(f"  {text}")
+    say(paint(line, "32"))
+
+
+BACKUP_FOLDER = f"{SAVED_DATA_ROOT}/probnik-updates"
+BACKUPS_KEPT = 10
+
+
+def backup_tag(version: str | None) -> str:
+    """The version a database copy was taken at, safe to put into a file name."""
+    return re.sub(r"[^A-Za-z0-9._-]", "_", version or "unknown")
+
+
+def backup_lines(version: str | None = None) -> list[str]:
+    """A copy of the database before the update, kept on the server (the last ten).
+
+    The name says which version was running, so a rollback to that version finds the copy that
+    fits its database schema."""
+    name = f"probnik-$(date +%Y%m%d-%H%M%S)-from-{backup_tag(version)}.tar.gz"
+    return [
+        f"systemctl stop {SERVICE} 2>/dev/null || true",
+        f"if [ -f {DATA_DIR}/probnik.db ]; then",
+        f"  mkdir -p {BACKUP_FOLDER} && chmod 700 {BACKUP_FOLDER}",
+        f"  (cd {DATA_DIR} && tar -czf {BACKUP_FOLDER}/{name} probnik.db*)",
+        f"  ls -1t {BACKUP_FOLDER}/*.tar.gz | tail -n +{BACKUPS_KEPT + 1} | xargs -r rm -f",
+        "fi",
+    ]
+
+
+def restore_db_lines(backup: str) -> list[str]:
+    return [
+        f"systemctl stop {SERVICE} 2>/dev/null || true",
+        f"cd {DATA_DIR}",
+        "rm -f probnik.db probnik.db-wal probnik.db-shm",
+        f"tar -xzf {shlex.quote(backup)}",
+        "chown probnik:probnik probnik.db*",
+    ]
+
+
+def head_commit(root: Path) -> str | None:
+    return git_out(root, "rev-parse", "HEAD")
+
+
+def resolve_version(root: Path, ref: str) -> tuple[str, str]:
+    """A tag, a branch or a hash -> (full hash, short hash)."""
+    full = git_out(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+    if not full:
+        raise DeployError(f"В git нет версии «{ref}»")
+    return full, full[:7]
+
+
+def list_versions(root: Path, limit: int = 15) -> list[dict]:
+    """The latest commits, newest first, with their tags."""
+    out = git_out(root, "log", f"-n{limit}", "--date=short", "--format=%H%x09%ad%x09%D%x09%s")
+    versions = []
+    for line in (out or "").splitlines():
+        full, date, refs, subject = (line.split("\t", 3) + ["", "", "", ""])[:4]
+        tags = [item[5:] for item in refs.split(", ") if item.startswith("tag: ")]
+        versions.append(
+            {"commit": full, "short": full[:7], "date": date, "tags": tags, "subject": subject}
+        )
+    return versions
+
+
+def export_version(root: Path, commit: str, dest: Path) -> None:
+    """The files of one commit, taken out of git: the working folder is left as it is."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "archive", "--format=tar", commit],
+            capture_output=True,
+            timeout=300,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise DeployError(f"Не удалось выгрузить версию из git: {error}") from error
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", "replace").strip()
+        raise DeployError(f"Не удалось выгрузить версию из git: {detail}")
+    with tarfile.open(fileobj=io.BytesIO(result.stdout)) as archive:
+        if hasattr(tarfile, "data_filter"):
+            archive.extractall(dest, filter="data")
+        else:  # pragma: no cover - older Python
+            archive.extractall(dest)
+
+
+def schema_changed(root: Path, one: str, other: str) -> bool:
+    """Did the database migrations differ between two versions? Unknown counts as yes."""
+    out = git_out(root, "diff", "--name-only", one, other, "--", "backend/migrations")
+    return True if out is None else bool(out)
+
+
+def is_behind(root: Path, local: str, server: str) -> bool:
+    """Is the version here older than the one on the server (an ancestor of it)?"""
+    if local == server:
+        return False
+    result = git(root, "merge-base", "--is-ancestor", local, server)
+    return result is not None and result.returncode == 0
+
+
+def read_access_code(remote: Remote) -> str:
+    if remote.cfg.dry_run:
+        return "<код с сервера>"
+    key = parse_env_value(remote.read(ENV_FILE) or "", "API_KEY")
+    if not key:
+        raise DeployError(f"На сервере не найден код доступа (файл {ENV_FILE})")
+    return key
+
+
+def replace_env_value(text: str, name: str, value: str) -> str:
+    lines, found = text.splitlines(), False
+    for index, line in enumerate(lines):
+        if line.startswith(f"{name}="):
+            lines[index], found = f"{name}={value}", True
+    if not found:
+        lines.append(f"{name}={value}")
+    return "\n".join(lines) + "\n"
+
+
+def installed_state(remote: Remote, step: Step) -> dict:
+    probe = inspect_server(remote, remote.cfg)
+    state = dict(probe.previous) if remote.cfg.dry_run else current_deployment(probe)
+    if state.get("legacy"):
+        step.note("запись о прошлом развёртывании не найдена: беру стандартные настройки")
+    remote.cfg.app_port = state.get("app_port", DEFAULT_APP_PORT)
+    return state
+
+
+def update(cfg: Config) -> int:
+    """Brings the latest version from git to the server; data and the access code stay as they are."""
+    progress = Progress(9)
+
+    def work(remote: Remote) -> int:
+        version = commit = None
+        with progress.step("Получаю обновления из git") as step:
+            if cfg.dry_run:
+                step.note("(пробный запуск: git pull пропущен)")
+            else:
+                version, notes = fetch_updates(ROOT)
+                commit = head_commit(ROOT)
+                for note in notes:
+                    step.note(note)
+                if version:
+                    step.note(f"версия для сервера: {version}")
+
+        with progress.step("Собираю приложение на вашем компьютере") as step:
+            if cfg.dry_run:
+                step.note("(пробный запуск: сборка и упаковка пропущены)")
+                archive = Path("probnik-release.tar.gz")
+            else:
+                build_frontend(ROOT, cfg.skip_build)
+                archive = Path(tempfile.mkdtemp()) / "probnik-release.tar.gz"
+                names = build_archive(ROOT, archive)
+                step.note(f"в архиве {len(names)} файлов (данные и ключи не включены)")
+
+        with progress.step(f"Подключаюсь к VPS {cfg.host}") as step:
+            step.note(f"отпечаток сервера: {remote.connect()}")
+
+        with progress.step("Проверяю установленное приложение") as step:
+            state = installed_state(remote, step)
+            if state.get("stopped"):
+                raise DeployError("Приложение выключено: сначала включите его (--start).")
+            if not cfg.dry_run:
+                step.note(f"сейчас на сервере: {state.get('version') or 'версия неизвестна'}")
+            server_commit = state.get("commit")
+            if (
+                not cfg.dry_run
+                and not cfg.force
+                and commit
+                and server_commit
+                and is_behind(ROOT, commit, server_commit)
+            ):
+                raise DeployError(
+                    f"на сервере версия новее ({state.get('version')}), чем в этой папке "
+                    f"({version}). Обновите папку проекта (git pull) или, если откат задуман, "
+                    "используйте --rollback. Выложить всё равно: --force"
+                )
+
+        with progress.step("Делаю копию базы данных на сервере") as step:
+            remote.script(*backup_lines(state.get("version")))
+            step.note(f"копии лежат в {BACKUP_FOLDER} (последние {BACKUPS_KEPT})")
+
+        with progress.step("Загружаю новую версию"):
+            upload(remote, archive)
+
+        with progress.step("Устанавливаю зависимости и обновляю базу"):
+            install_dependencies(remote)
+
+        plan = Plan(
+            cfg.app_port,
+            state.get("public_port", 80),
+            False,
+            bool(state.get("default_server")),
+            state.get("domain"),
+            [],
+        )
+        with progress.step("Перезапускаю приложение"):
+            start_service(remote, plan)
+
+        with progress.step("Проверяю, что всё работает"):
+            verify(remote, cfg, plan, bool(state.get("https")))
+
+        if not cfg.dry_run:
+            state["version"] = version
+            state["commit"] = commit
+            state["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+            remote.write(
+                STATE_PATH, json.dumps(state, ensure_ascii=False, indent=2), owner="probnik:probnik"
+            )
+        box(
+            "Готово! Приложение обновлено.",
+            [
+                f"Версия: {version or 'неизвестна'}",
+                "Код доступа и данные не менялись. Все пользователи работают с новой версией:",
+                "открытая страница подхватит её при следующей загрузке.",
+            ],
+        )
+        return 0
+
+    return with_server(cfg, work, "Обновление остановлено")
+
+
+def choose_version(root: Path, current: str | None) -> str:
+    versions = list_versions(root)
+    if not versions:
+        raise DeployError("В git не нашлось версий")
+    say("\n  Версии в git (новые сверху):")
+    for index, item in enumerate(versions, start=1):
+        tags = f" [{', '.join(item['tags'])}]" if item["tags"] else ""
+        here = "   ← сейчас на сервере" if current and item["commit"].startswith(current) else ""
+        say(f"    {index:>2}  {item['short']}  {item['date']}  {item['subject'][:60]}{tags}{here}")
+    pick = ask(
+        "Номер версии (Enter — отмена)",
+        check=lambda value: value.isdigit() and 1 <= int(value) <= len(versions),
+        error=f"Введите число от 1 до {len(versions)}",
+    )
+    if not pick:
+        raise DeployError("Откат отменён")
+    return versions[int(pick) - 1]["commit"]
+
+
+def rollback(cfg: Config) -> int:
+    """Puts an earlier version from git on the server. Nothing is kept on the server for it:
+    the version is taken out of git, built here and uploaded like an ordinary update."""
+    progress = Progress(9)
+
+    def work(remote: Remote) -> int:
+        temp = Path(tempfile.mkdtemp(prefix="probnik-rollback-"))
+        try:
+            return rollback_work(cfg, remote, progress, temp)
+        finally:
+            shutil.rmtree(temp, ignore_errors=True)
+
+    return with_server(cfg, work, "Откат остановлен")
+
+
+def rollback_work(cfg: Config, remote: Remote, progress: Progress, temp: Path) -> int:
+    if not cfg.dry_run and git_out(ROOT, "rev-parse", "--is-inside-work-tree") != "true":
+        raise DeployError("Откат берёт версии из git: нужен git и клон репозитория")
+
+    with progress.step(f"Подключаюсь к VPS {cfg.host}") as step:
+        step.note(f"отпечаток сервера: {remote.connect()}")
+
+    with progress.step("Проверяю установленное приложение") as step:
+        state = installed_state(remote, step)
+        if state.get("stopped"):
+            raise DeployError("Приложение выключено: сначала включите его (--start).")
+        step.note(f"сейчас на сервере: {state.get('version') or 'версия неизвестна'}")
+
+    with progress.step("Выбираю версию из git") as step:
+        if cfg.dry_run:
+            full, short = "", cfg.target or "<версия>"
+            step.note(f"(пробный запуск: git не читаю) версия {short}")
+        else:
+            ref = cfg.target or choose_version(ROOT, state.get("commit"))
+            full, short = resolve_version(ROOT, ref)
+            step.note(f"откатываюсь к версии {short}")
+            if state.get("commit") and state["commit"] == full:
+                raise DeployError("на сервере уже эта версия")
+
+    restore = None
+    with progress.step("Сверяю схему базы данных с этой версией") as step:
+        if cfg.dry_run:
+            step.note("(пробный запуск: если миграции отличаются, вернётся копия базы той версии)")
+        else:
+            current = state.get("commit") or head_commit(ROOT) or ""
+            if schema_changed(ROOT, full, current):
+                found = remote.run(
+                    f"ls -1t {BACKUP_FOLDER}/*-from-{backup_tag(short)}.tar.gz 2>/dev/null | head -1",
+                    check=False,
+                ).out.strip()
+                if not found:
+                    raise DeployError(
+                        "между версиями менялась схема базы данных, а копии базы от версии "
+                        f"{short} на сервере нет: старый код не запустится на новой базе"
+                    )
+                step.note(paint("между версиями менялась схема базы данных", "33"))
+                step.note(f"нужна копия базы той версии: {found.rsplit('/', 1)[-1]}")
+                step.note("всё, что внесено в приложение с тех пор, пропадёт")
+                if not cfg.restore_db:
+                    if cfg.yes:
+                        raise DeployError("для такого отката нужен параметр --restore-db")
+                    if ask("Для подтверждения введите слово ОТКАТ").strip().upper() != "ОТКАТ":
+                        raise DeployError("Откат отменён")
+                restore = found
+            else:
+                step.note("схема базы не менялась: вернётся только код, данные останутся")
+
+    with progress.step("Выгружаю эту версию из git и собираю") as step:
+        if cfg.dry_run:
+            step.note("(пробный запуск: выгрузка и сборка пропущены)")
+            archive = Path("probnik-release.tar.gz")
+        else:
+            export_version(ROOT, full, temp)
+            build_frontend(temp, cfg.skip_build)
+            archive = temp / "probnik-release.tar.gz"
+            names = build_archive(temp, archive)
+            step.note(f"в архиве {len(names)} файлов; ваша рабочая папка не менялась")
+
+    with progress.step("Делаю копию текущей базы на сервере") as step:
+        remote.script(*backup_lines(state.get("version")))
+        step.note(f"копии лежат в {BACKUP_FOLDER}: к текущей версии можно вернуться")
+
+    with progress.step("Загружаю выбранную версию"):
+        upload(remote, archive)
+        if restore:
+            remote.script(*restore_db_lines(restore))
+
+    with progress.step("Устанавливаю зависимости и готовлю базу"):
+        install_dependencies(remote)
+
+    plan = Plan(
+        cfg.app_port,
+        state.get("public_port", 80),
+        False,
+        bool(state.get("default_server")),
+        state.get("domain"),
+        [],
+    )
+    with progress.step("Перезапускаю и проверяю приложение"):
+        start_service(remote, plan)
+        verify(remote, cfg, plan, bool(state.get("https")))
+
+    if not cfg.dry_run:
+        state["version"], state["commit"] = short, full
+        state["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+        remote.write(
+            STATE_PATH, json.dumps(state, ensure_ascii=False, indent=2), owner="probnik:probnik"
+        )
+    box(
+        "Готово! Версия возвращена.",
+        [
+            f"Версия на сервере: {short}",
+            "База данных восстановлена из копии той версии." if restore else "Данные не менялись.",
+            "Код доступа не менялся.",
+        ],
+    )
+    return 0
+
+
+def show_code(cfg: Config) -> int:
+    progress = Progress(2)
+
+    def work(remote: Remote) -> int:
+        with progress.step(f"Подключаюсь к VPS {cfg.host}") as step:
+            step.note(f"отпечаток сервера: {remote.connect()}")
+        with progress.step("Читаю код доступа на сервере"):
+            key = read_access_code(remote)
+        say("\n" + paint(f"  Код доступа администратора: {key}", "1;33"))
+        say("  Вход: «Сотрудник» → роль «Администратор» → этот код.")
+        say("  Личные 6-значные коды сотрудников и учеников здесь не хранятся: их можно только")
+        say("  сбросить в приложении («Школа» → «Ученики» / «Сотрудники»).")
+        return 0
+
+    return with_server(cfg, work, "Не получилось")
+
+
+def set_code(cfg: Config) -> int:
+    progress = Progress(3)
+
+    def work(remote: Remote) -> int:
+        with progress.step(f"Подключаюсь к VPS {cfg.host}") as step:
+            step.note(f"отпечаток сервера: {remote.connect()}")
+        with progress.step("Смотрю, что установлено на сервере") as step:
+            state = installed_state(remote, step)
+        code = cfg.new_code or secrets.token_urlsafe(18)
+        with progress.step("Записываю новый код и перезапускаю приложение"):
+            if cfg.dry_run:
+                env = ""
+            else:
+                env = remote.read(ENV_FILE)
+                if env is None:
+                    raise DeployError(f"На сервере нет файла {ENV_FILE}")
+            remote.write(ENV_FILE, replace_env_value(env, "API_KEY", code), "640", "root:probnik")
+            remote.script(f"systemctl restart {SERVICE}")
+            if not wait_for_app(remote, state.get("app_port", DEFAULT_APP_PORT)):
+                raise DeployError("Приложение не запустилось: смотрите журнал (--status)")
+            session = api_call(remote, "/api/session")
+            if not cfg.dry_run and not (session and session.get("authenticated")):
+                raise DeployError("Приложение запущено, но не принимает новый код")
+        box(
+            "Код доступа изменён.",
+            [
+                f"Новый код: {code if not cfg.dry_run else '<будет задан>'}",
+                "Старый код больше не работает. Сотрудники и ученики, которые были в системе,",
+                "войдут заново: свои личные 6-значные коды они сохраняют.",
+            ],
+        )
+        return 0
+
+    return with_server(cfg, work, "Не получилось")
+
+
+def status(cfg: Config) -> int:
+    progress = Progress(2)
+
+    def work(remote: Remote) -> int:
+        with progress.step(f"Подключаюсь к VPS {cfg.host}") as step:
+            step.note(f"отпечаток сервера: {remote.connect()}")
+        with progress.step("Смотрю состояние приложения") as step:
+            state = installed_state(remote, step)
+            port = state.get("app_port", DEFAULT_APP_PORT)
+            active = remote.run(f"systemctl is-active {SERVICE}", check=False).out.strip()
+            since = remote.run(
+                f"systemctl show {SERVICE} -p ActiveEnterTimestamp --value", check=False
+            ).out.strip()
+            health = remote.run(f"curl -fsS http://127.0.0.1:{port}/health", check=False).code == 0
+            size = remote.run(f"du -h {DATA_DIR}/probnik.db | cut -f1", check=False).out.strip()
+            log = remote.run(f"journalctl -u {SERVICE} -n 15 --no-pager", check=False).out.strip()
+        address = public_url(
+            cfg,
+            Plan(port, state.get("public_port", 80), False, False, state.get("domain"), []),
+            bool(state.get("https")),
+        )
+        box(
+            "Состояние приложения",
+            [
+                f"Адрес: {address}",
+                f"Служба: {active or 'неизвестно'}" + (f" (с {since})" if since else ""),
+                f"Отвечает: {'да' if health else 'НЕТ'}",
+                f"Версия: {state.get('version') or 'неизвестна'}"
+                + (f", обновлено {state['updated_at']}" if state.get("updated_at") else ""),
+                "В git сейчас: "
+                + (
+                    (head_commit(ROOT) or "?")[:7]
+                    + (" (так же, как на сервере)" if state.get("commit") == head_commit(ROOT) else "")
+                ),
+                f"База данных: {size or '—'}",
+                "Выключено вручную: " + ("да" if state.get("stopped") else "нет"),
+            ],
+        )
+        if log:
+            say("\n  Последние строки журнала:")
+            for line in log.splitlines():
+                say(paint(f"    {line}", "90"))
+        return 0
+
+    return with_server(cfg, work, "Не получилось")
+
+
+def forget(cfg: Config) -> int:
+    gone = forget_password(cfg.host, cfg.user)
+    say(
+        f"Сохранённый пароль для {cfg.user}@{cfg.host} удалён."
+        if gone
+        else f"Сохранённого пароля для {cfg.user}@{cfg.host} не было."
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
@@ -1765,7 +2478,17 @@ def main(argv: list[str] | None = None) -> int:
     except (KeyboardInterrupt, EOFError):
         say(paint("\nПрервано.", "33"))
         return 130
-    return deploy(cfg) if cfg.action == "deploy" else manage(cfg)
+    if cfg.action == "deploy":
+        return deploy(cfg)
+    handler = {
+        "update": update,
+        "rollback": rollback,
+        "show_code": show_code,
+        "set_code": set_code,
+        "status": status,
+        "forget": forget,
+    }.get(cfg.action, manage)
+    return handler(cfg)
 
 
 if __name__ == "__main__":

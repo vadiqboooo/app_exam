@@ -13,6 +13,7 @@ class StudentRecord(Schema):
     grade: int | None = Field(default=None, ge=1, le=11)
     is_active: bool = True
     groups: tuple[NonEmpty, ...] = ()
+    school: NonEmpty | None = None
 
     @field_validator("full_name")
     @classmethod

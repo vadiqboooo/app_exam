@@ -1,6 +1,7 @@
 import type {
   BackupObject,
   BackupState,
+  CurrentEvent,
   LegacyFiles,
   YandexState,
   FolderState,
@@ -24,6 +25,7 @@ import type {
   Session,
   Status,
   Student,
+  StudentApplication,
   StudentCandidate,
   StudentParticipation,
   StudentsStep,
@@ -95,10 +97,13 @@ const importFile = <T>(path: string, file: File, grades?: (number | null)[], con
   return request<T>(`/imports/${path}`, { method: 'POST', body });
 };
 
-const importForm = <T>(path: string, parts: Record<string, File | File[] | string | undefined>) => {
+const importForm = <T>(
+  path: string,
+  parts: Record<string, File | File[] | string | string[] | undefined>,
+) => {
   const body = new FormData();
   for (const [name, value] of Object.entries(parts)) {
-    if (Array.isArray(value)) value.forEach((item) => body.append(name, item));
+    if (Array.isArray(value)) (value as (File | string)[]).forEach((item) => body.append(name, item));
     else if (value !== undefined) body.append(name, value);
   }
   return request<T>(`/imports/${path}`, { method: 'POST', body });
@@ -149,6 +154,19 @@ export const api = {
       ),
     resetCode: (id: number) => request<Student>(`/students/${id}/reset-code`, { method: 'POST' }),
     unlock: (id: number) => request<Student>(`/students/${id}/unlock`, { method: 'POST' }),
+    create: (data: {
+      last_name: string;
+      first_name: string;
+      phone?: string;
+      grade: number;
+      group_ids: number[];
+      give_code: boolean;
+    }) => request<{ student: Student; code: string | null }>('/students', json('POST', data)),
+    applications: () => request<StudentApplication[]>('/students/applications'),
+    approveApplication: (id: number, grade: number, group_id?: number) =>
+      request<Student>(`/students/applications/${id}/approve`, json('POST', { grade, group_id })),
+    rejectApplication: (id: number) =>
+      request<{ status: string }>(`/students/applications/${id}`, { method: 'DELETE' }),
   },
   groups: {
     list: () => all<Group>('/groups'),
@@ -254,10 +272,18 @@ export const api = {
     teachers: (file: File, groups?: File) => importForm<TeachersStep>('teachers/preview', { file, groups }),
     groups: (file: File, teachers?: File) => importForm<GroupsStep>('groups/preview', { file, teachers }),
     students: (file: File, groups?: File) => importForm<StudentsStep>('students/preview', { file, groups }),
-    rosters: (files: File[]) => importForm<RosterStep>('rosters/preview', { files }),
+    rosters: (files: File[], schools: string[]) =>
+      importForm<RosterStep>('rosters/preview', { files, schools }),
     legacy: (file: File) => importForm<LegacyStep>('legacy/analyze', { file }),
     run: (
-      files: { teachers?: File; groups?: File; students?: File; rosters?: File[]; legacy?: File },
+      files: {
+        teachers?: File;
+        groups?: File;
+        students?: File;
+        rosters?: File[];
+        schools?: string[];
+        legacy?: File;
+      },
       confirmation?: string,
     ) => importForm<ImportRun>(confirmation ? 'run/apply' : 'run/preview', { ...files, confirmation }),
     analyze: (file: File) => importFile<ImportAnalysis>('analyze', file),
@@ -268,6 +294,9 @@ export const api = {
   student: {
     login: (last_name: string, first_name: string, code?: string) =>
       request<StudentLoginResult>('/student/login', json('POST', { last_name, first_name, code })),
+    currentEvent: () => request<CurrentEvent | null>('/student/current-event'),
+    signUp: (data: { last_name: string; first_name: string; code: string; phone: string }) =>
+      request<{ status: 'ok'; token: string; student: Student }>('/student/register', json('POST', data)),
     me: () => request<Student>('/student/me'),
     exams: () => all<Exam>('/student/exams'),
     participations: () => all<StudentParticipation>('/student/participations'),

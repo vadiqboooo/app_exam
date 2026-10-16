@@ -21,9 +21,38 @@ export interface Student {
   is_active: boolean;
   external_id: string | null;
   name_key: string;
+  phone?: string | null;
+  school?: string | null;
+  self_registered?: boolean;
+  is_pending?: boolean;
   has_code?: boolean;
   locked_until?: string | null;
   last_login_at?: string | null;
+}
+/** The nearest mock exam open for booking, shown on the login screen. */
+export interface CurrentEvent {
+  title: string;
+  state: 'open' | 'soon';
+  starts_at: string;
+  ends_at: string;
+  registration_open_at: string | null;
+  registration_close_at: string | null;
+  free_seats: number;
+}
+/** A person from outside the school who signed up on the site and waits for an administrator. */
+export interface ApplicationBooking {
+  subject: string;
+  title: string | null;
+  starts_at: string;
+  school_name: string | null;
+  status: string;
+}
+export interface StudentApplication {
+  id: number;
+  full_name: string;
+  phone: string | null;
+  requested_at: string | null;
+  bookings: ApplicationBooking[];
 }
 /** A pupil found by name among all pupils, with their groups and the work on a chosen exam. */
 export interface StudentCandidate {

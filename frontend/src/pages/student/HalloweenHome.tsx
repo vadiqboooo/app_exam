@@ -84,6 +84,8 @@ function Profile() {
   );
 }
 
+import { PendingNote } from '../../components/PendingNote';
+
 export function HalloweenHome({
   student,
   schedule,
@@ -182,7 +184,9 @@ export function HalloweenHome({
                       </span>
                       <b>
                         {participation.status === 'registered'
-                          ? 'Записан'
+                          ? student.is_pending
+                            ? 'Ждёт звонка'
+                            : 'Записан'
                           : statusLabels[participation.status]}
                       </b>
                     </div>
@@ -200,6 +204,9 @@ export function HalloweenHome({
                     )}
                   </div>
                 </div>
+                {student.is_pending && participation.status === 'registered' && (
+                  <PendingNote className="hw-pending" />
+                )}
                 {participation.status === 'registered' && (
                   <div className="hw-exam-actions">
                     {editable ? (

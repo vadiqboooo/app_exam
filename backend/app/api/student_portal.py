@@ -1,19 +1,25 @@
+from datetime import UTC
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import Limit, Offset, ReadSession, WriteSession, bearer, get_or_404
 from app.importers.record import normalize_name
-from app.models import Exam, ExamSlot, Participation, Student
+from app.models import Exam, ExamEvent, ExamSlot, Participation, Student
 from app.schemas.exam import ExamRead
 from app.schemas.participation import ParticipationRead, Registration
 from app.schemas.student import StudentRead
-from app.schemas.student_portal import StudentLogin, StudentParticipation, StudentRegistration
-from app.services.access_code import Rejected, authenticate
+from app.schemas.student_portal import (
+    StudentLogin,
+    StudentParticipation,
+    StudentRegistration,
+    StudentSignup,
+)
+from app.services.access_code import Rejected, authenticate, hash_code
 from app.services.exams import read_exams
 from app.services.participation import change_status, check_slot, register
 from app.services.student_session import issue_token, read_token
@@ -47,6 +53,115 @@ def login(data: StudentLogin, request: Request, session: WriteSession):
         return JSONResponse({"detail": result.detail}, status_code=result.status)
     if result != "ok":
         return {"status": result}
+    return {
+        "status": "ok",
+        "token": issue_token(student.id, settings.api_key),
+        "student": StudentRead.model_validate(student).model_dump(mode="json"),
+    }
+
+
+def _utc(value):
+    return value.replace(tzinfo=UTC).isoformat() if value is not None else None
+
+
+@router.get("/current-event")
+def current_event(session: ReadSession):
+    """The nearest mock exam open for booking: shown on the login screen before signing in."""
+    now = utcnow()
+    best = None
+    for event in session.scalars(select(ExamEvent)):
+        exams = list(
+            session.scalars(
+                select(Exam).where(
+                    Exam.event_id == event.id, Exam.type == "mock", Exam.is_active.is_(True)
+                )
+            )
+        )
+        slots = list(
+            session.scalars(
+                select(ExamSlot).where(ExamSlot.event_id == event.id, ExamSlot.starts_at > now)
+            )
+        )
+        if not exams or not slots:
+            continue
+        opens = max((e.registration_open_at for e in exams if e.registration_open_at), default=None)
+        closes = max((e.registration_close_at for e in exams if e.registration_close_at), default=None)
+        if closes is not None and closes <= now:
+            continue
+        starts = min(slot.starts_at for slot in slots)
+        if best is None or starts < best["starts"]:
+            booked = dict(
+                session.execute(
+                    select(Participation.slot_id, func.count())
+                    .where(
+                        Participation.slot_id.in_([s.id for s in slots]),
+                        Participation.status != "cancelled",
+                    )
+                    .group_by(Participation.slot_id)
+                ).all()
+            )
+            best = {
+                "starts": starts,
+                "body": {
+                    "title": event.title,
+                    "state": "soon" if opens is not None and opens > now else "open",
+                    "starts_at": _utc(starts),
+                    "ends_at": _utc(max(slot.starts_at for slot in slots)),
+                    "registration_open_at": _utc(opens),
+                    "registration_close_at": _utc(closes),
+                    "free_seats": sum(max(s.capacity - booked.get(s.id, 0), 0) for s in slots),
+                },
+            }
+    return best["body"] if best else None
+
+
+MAX_PENDING = 200
+
+
+@router.post("/register", status_code=201)
+def sign_up(data: StudentSignup, request: Request, session: WriteSession):
+    """A person from outside the school signs up and can book at once.
+
+    The booking becomes final after the administrator's call: they confirm the application.
+    """
+    settings = request.app.state.settings
+    if not settings.api_key:
+        raise HTTPException(503, "Настройте API_KEY для входа учеников")
+    phone_digits = "".join(ch for ch in data.phone if ch.isdigit())
+    if len(phone_digits) != 11:
+        raise ValueError("Введите телефон полностью, например +7 (900) 123-45-67")
+    full_name = " ".join(f"{data.last_name} {data.first_name}".split())
+    key = normalize_name(full_name)
+    taken = session.scalar(
+        select(Student.id).where(
+            (Student.name_key == key) | Student.name_key.startswith(key + " ", autoescape=True)
+        )
+    )
+    if taken is not None:
+        raise HTTPException(
+            409,
+            "Ученик с такими фамилией и именем уже есть. "
+            "Войдите по коду от школы или обратитесь к администратору",
+        )
+    pending = session.scalar(
+        select(func.count()).select_from(Student).where(Student.is_pending.is_(True))
+    )
+    if pending >= MAX_PENDING:
+        raise HTTPException(429, "Слишком много заявок. Позвоните в школу")
+    student = Student(
+        full_name=full_name,
+        name_key=key,
+        grade=None,
+        is_active=True,
+        phone=f"+7 ({phone_digits[1:4]}) {phone_digits[4:7]}-{phone_digits[7:9]}-{phone_digits[9:]}",
+        self_registered=True,
+        is_pending=True,
+        requested_at=utcnow(),
+        access_code_hash=hash_code(data.code),
+        last_login_at=utcnow(),
+    )
+    session.add(student)
+    session.flush()
     return {
         "status": "ok",
         "token": issue_token(student.id, settings.api_key),

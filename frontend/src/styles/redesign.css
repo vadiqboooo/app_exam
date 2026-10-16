@@ -1723,3 +1723,173 @@
     flex-basis: 100%;
   }
 }
+
+/* student sign-up (2b): name → password → phone */
+.lg-steps {
+  display: flex;
+  gap: 6px;
+}
+.lg-steps span {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: #dcd9e6;
+}
+.lg-steps span.is-on {
+  background: #7357db;
+}
+.lg-step-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #6a6679;
+}
+.lg-agree {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.lg-agree input {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  margin: 0;
+  accent-color: #7357db;
+}
+.lg-link {
+  padding: 6px;
+  border: 0;
+  background: transparent;
+  color: #5c42bd;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.lg-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 28px 24px;
+  border: 1px solid #eae9f1;
+  border-radius: 18px;
+  background: #fff;
+  text-align: center;
+}
+.lg-done h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+.lg-done p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #4a4659;
+}
+.lg-done-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: #e6f4ea;
+  color: #1f6b3a;
+}
+.lg-signup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid #ddd2f8;
+  border-radius: 14px;
+  background: #f0ebfc;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #3d2b99;
+}
+.lg-signup button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 48px;
+  border: 1.5px solid #7357db;
+  border-radius: 12px;
+  background: #fff;
+  color: #3d2b99;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.lg-page.lg-hw .lg-signup {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--hw-soft);
+}
+
+/* booking of an applicant who has not been confirmed by an administrator yet */
+.pending-note {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid #f0d28f;
+  border-radius: 10px;
+  background: #fff7e0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #5c3f05;
+}
+.pending-note b {
+  color: #5c3f05;
+}
+.pending-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fff1d6;
+  color: #7a4f06;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* the current mock exam on the login screen */
+.lg-event {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid #ddd2f8;
+  border-radius: 14px;
+  background: #f0ebfc;
+}
+.lg-event-tag {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #5c42bd;
+}
+.lg-event strong {
+  font-size: 17px;
+  font-weight: 800;
+  color: #292637;
+}
+.lg-event-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.lg-event-chips span {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  color: #3d2b99;
+}

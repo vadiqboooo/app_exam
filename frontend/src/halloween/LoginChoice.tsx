@@ -2,19 +2,10 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, Briefcase, GraduationCap } from 'lucide-react';
 import { Art, Bat, CREDIT, Glow, GlowDefs, Stars } from './Art';
 import { Brew } from './Brew';
-import { daysToWeek, setHalloween, useHalloween, useThemeEnabled, WEEK } from './theme';
+import { setHalloween, useHalloween, useThemeEnabled } from './theme';
+import { eventPeriod, freeSeats, registrationLeft, useCurrentEvent } from '../lib/currentEvent';
 
 const SPARKLE = 'M12 1l2.6 8.4L23 12l-8.4 2.6L12 23l-2.6-8.4L1 12l8.4-2.6z';
-const dayMonth = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' });
-const days = (count: number) => {
-  const mod10 = count % 10;
-  const mod100 = count % 100;
-  return mod10 === 1 && mod100 !== 11
-    ? `${count} день`
-    : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
-      ? `${count} дня`
-      : `${count} дней`;
-};
 
 /** Night sky for the wide screen (the design is 1280×800). */
 function WideScene() {
@@ -122,9 +113,8 @@ function PhoneScene() {
 }
 
 function HalloweenChoice({ onStudent, onStaff }: { onStudent: () => void; onStaff: () => void }) {
-  const left = daysToWeek();
-  const from = dayMonth.format(WEEK.start);
-  const to = dayMonth.format(WEEK.end);
+  const event = useCurrentEvent();
+  const period = event ? eventPeriod(event) : '';
   return (
     <div className="hw-scope hw-stage hw-choice">
       <WideScene />
@@ -143,21 +133,22 @@ function HalloweenChoice({ onStudent, onStaff }: { onStudent: () => void; onStaf
         <div className="hw-choice-body">
           <div className="hw-choice-pitch">
             <span className="hw-ri hw-choice-tag" style={{ animationDelay: '0.1s' }}>
-              ХЭЛЛОУИНСКАЯ НЕДЕЛЯ · {from.toUpperCase()} — {to.toUpperCase()}
+              ХЭЛЛОУИНСКАЯ НЕДЕЛЯ{period && ` · ${period.toUpperCase()}`}
             </span>
             <h1 className="hw-ri hw-display" style={{ animationDelay: '0.2s' }}>
               Побори свой <span>первый страх</span>
             </h1>
             <p className="hw-ri hw-choice-lead" style={{ animationDelay: '0.3s' }}>
-              Пробные экзамены ОГЭ и ЕГЭ в самую страшную неделю — с {from} по {to}.
+              Пробные экзамены ОГЭ и ЕГЭ в самую страшную неделю{period && ` — ${period}`}.
             </p>
             <p className="hw-ri hw-choice-text" style={{ animationDelay: '0.4s' }}>
               Многие боятся идти на экзамен, потому что не знают, как он проходит. Приходи на пробник: увидишь
               экзамен изнутри, узнаешь свой балл — и страх станет знакомым.
             </p>
-            {left > 0 && (
+            {event && (
               <div className="hw-ri hw-choice-chips" style={{ animationDelay: '0.5s' }}>
-                <span>Осталось {days(left)}</span>
+                <span>{registrationLeft(event)}</span>
+                <span>{freeSeats(event)}</span>
               </div>
             )}
           </div>
@@ -212,6 +203,7 @@ function LightChoice({
   onStaff: () => void;
   onMagic?: () => void;
 }) {
+  const event = useCurrentEvent();
   return (
     <div className="lg-page">
       <section className="lg-side lg-side-purple">
@@ -230,6 +222,16 @@ function LightChoice({
       </section>
       <section className="lg-main">
         <div className="lg-panel lg-panel-wide">
+          {event && (
+            <div className="lg-event" aria-label="Текущий пробник">
+              <span className="lg-event-tag">{event.title}</span>
+              <strong>Пробник {eventPeriod(event)}</strong>
+              <div className="lg-event-chips">
+                <span>{registrationLeft(event)}</span>
+                <span>{freeSeats(event)}</span>
+              </div>
+            </div>
+          )}
           <div className="lg-title">
             <h2>Войти в кабинет</h2>
             <p>Кто вы?</p>

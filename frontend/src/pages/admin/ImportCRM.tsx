@@ -104,7 +104,10 @@ function PreviewTable({
 const loadLegacyFiles = () => api.backups.legacyFiles();
 
 export function ImportCRM() {
-  const { refresh } = useWorkspace();
+  const { data, refresh } = useWorkspace();
+  const knownSchools = [
+    ...new Set(data.students.map((student) => student.school).filter((name): name is string => !!name)),
+  ].sort((a, b) => a.localeCompare(b, 'ru'));
   const { busy, error, run, clearError } = useAction();
   const rosterInput = useRef<HTMLInputElement | null>(null);
   const [stage, setStage] = useState(0);
@@ -112,6 +115,8 @@ export function ImportCRM() {
   const [legacyFile, setLegacyFile] = useState<File>();
   const [legacyPreview, setLegacyPreview] = useState<LegacyStep>();
   const [rosterFiles, setRosterFiles] = useState<File[]>([]);
+  // The school of each group file, in the order of the files.
+  const [schools, setSchools] = useState<string[]>([]);
   const [rosterPreview, setRosterPreview] = useState<RosterStep>();
   const [result, setResult] = useState<ImportRun>();
   const [confirming, setConfirming] = useState(false);
@@ -167,23 +172,31 @@ export function ImportCRM() {
     clearError();
     setSuccess('');
     setResult(undefined);
+    setRosterFiles(picked);
+    setSchools(picked.map(() => ''));
+    setRosterPreview(undefined);
+  };
+
+  const setSchool = (index: number, value: string) => {
+    setSchools(schools.map((item, itemIndex) => (itemIndex === index ? value : item)));
+    setRosterPreview(undefined);
+    setResult(undefined);
+  };
+
+  const checkRosters = () => {
+    clearError();
     void run(async () => {
-      const preview = await api.import.rosters(picked);
-      setRosterFiles(picked);
-      setRosterPreview(preview);
+      setRosterPreview(await api.import.rosters(rosterFiles, schools.map((item) => item.trim())));
     });
   };
 
   const removeRoster = (index: number) => {
     const next = rosterFiles.filter((_, itemIndex) => itemIndex !== index);
-    if (!next.length) {
-      setRosterFiles([]);
-      setRosterPreview(undefined);
-      setResult(undefined);
-      if (rosterInput.current) rosterInput.current.value = '';
-      return;
-    }
-    chooseRosters(next);
+    setResult(undefined);
+    setRosterPreview(undefined);
+    setRosterFiles(next);
+    setSchools(schools.filter((_, itemIndex) => itemIndex !== index));
+    if (!next.length && rosterInput.current) rosterInput.current.value = '';
   };
 
   const showSummary = () => {
@@ -191,6 +204,7 @@ export function ImportCRM() {
     void run(async () => {
       const next = await api.import.run({
         rosters: rosterFiles,
+        schools: schools.map((item) => item.trim()),
         legacy: legacySkipped ? undefined : legacyFile,
       });
       setResult(next);
@@ -203,13 +217,18 @@ export function ImportCRM() {
     setConfirming(false);
     void run(async () => {
       await api.import.run(
-        { rosters: rosterFiles, legacy: legacySkipped ? undefined : legacyFile },
+        {
+          rosters: rosterFiles,
+          schools: schools.map((item) => item.trim()),
+          legacy: legacySkipped ? undefined : legacyFile,
+        },
         result.confirmation,
       );
       await refresh();
       setSuccess('Импорт применён. Учителя, группы и ученики обновлены.');
       setStage(1);
       setRosterFiles([]);
+      setSchools([]);
       setRosterPreview(undefined);
       setResult(undefined);
       if (rosterInput.current) rosterInput.current.value = '';
@@ -352,6 +371,11 @@ export function ImportCRM() {
           ) : (
             <>
               <div className="imp-disk">
+                <datalist id="known-schools">
+                  {knownSchools.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
                 {rosterFiles.map((file, index) => (
                   <div className="imp-disk-row" key={`${file.name}-${file.lastModified}`}>
                     <span>
@@ -360,6 +384,16 @@ export function ImportCRM() {
                       </b>
                       <small>{fileSize(file.size)}</small>
                     </span>
+                    <label className="imp-school">
+                      Школа
+                      <input
+                        list="known-schools"
+                        placeholder="Например, Школа №12"
+                        value={schools[index] ?? ''}
+                        disabled={busy}
+                        onChange={(event) => setSchool(index, event.target.value)}
+                      />
+                    </label>
                     <button
                       type="button"
                       className="imp-edit"
@@ -414,14 +448,23 @@ export function ImportCRM() {
                 </>
               )}
               <div className="imp-actions">
-                <button
-                  type="button"
-                  className="imp-next"
-                  disabled={busy || !rosterPreview}
-                  onClick={showSummary}
-                >
-                  К итогу
-                </button>
+                {rosterPreview ? (
+                  <button type="button" className="imp-next" disabled={busy} onClick={showSummary}>
+                    К итогу
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="imp-next"
+                    disabled={busy || schools.length !== rosterFiles.length || schools.some((s) => !s.trim())}
+                    onClick={checkRosters}
+                  >
+                    {busy ? 'Читаем файлы…' : 'Проверить файлы'}
+                  </button>
+                )}
+                {!rosterPreview && schools.some((s) => !s.trim()) && (
+                  <small>Укажите школу для каждого файла</small>
+                )}
               </div>
             </>
           )}

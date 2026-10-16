@@ -163,7 +163,7 @@ def _pupils(value: str) -> tuple[str, ...]:
     )
 
 
-def read_group_roster(source: BinaryIO) -> RosterData:
+def read_group_roster(source: BinaryIO, school: str | None = None) -> RosterData:
     """Read an export where every row contains a group, its teacher and its pupils."""
     headers, rows = _table(source)
     name_col = _find(headers, "название", "название группы", "группа")
@@ -232,7 +232,9 @@ def read_group_roster(source: BinaryIO) -> RosterData:
             if len(candidates) == 1:
                 grade = candidates[0]
         student_records.append(
-            StudentRecord(full_name=item["name"], grade=grade, groups=tuple(item["groups"]))
+            StudentRecord(
+                full_name=item["name"], grade=grade, groups=tuple(item["groups"]), school=school
+            )
         )
     return RosterData(
         teachers=tuple(
@@ -265,8 +267,11 @@ def combine_group_rosters(rosters: list[RosterData]) -> RosterData:
         for student in roster.students:
             key = normalize_name(student.full_name)
             item = students.setdefault(
-                key, {"name": student.full_name, "groups": [], "grades": Counter()}
+                key, {"name": student.full_name, "groups": [], "grades": Counter(), "school": None}
             )
+            # A pupil listed in several files keeps the school of the first one.
+            if student.school and not item["school"]:
+                item["school"] = student.school
             for group in student.groups:
                 if group not in item["groups"]:
                     item["groups"].append(group)
@@ -283,7 +288,12 @@ def combine_group_rosters(rosters: list[RosterData]) -> RosterData:
             if len(candidates) == 1:
                 grade = candidates[0]
         student_records.append(
-            StudentRecord(full_name=item["name"], grade=grade, groups=tuple(item["groups"]))
+            StudentRecord(
+                full_name=item["name"],
+                grade=grade,
+                groups=tuple(item["groups"]),
+                school=item["school"],
+            )
         )
     return RosterData(
         teachers=tuple(

@@ -54,10 +54,21 @@ def _groups_file(file: UploadFile | None):
     return read_groups(file.file) if file is not None else None
 
 
-def _rosters_files(files: list[UploadFile]):
+def clean_schools(schools: list[str] | None, count: int) -> list[str]:
+    """Every group file belongs to one school: they are given in the order of the files."""
+    names = [" ".join(name.split()) for name in schools or []]
+    if len(names) != count or not all(names):
+        raise ValueError("Укажите школу для каждого файла групп")
+    return names
+
+
+def _rosters_files(files: list[UploadFile], schools: list[str] | None):
     if not files:
         raise ValueError("Загрузите хотя бы один XLSX-файл")
-    return combine_group_rosters([read_group_roster(file.file) for file in files])
+    names = clean_schools(schools, len(files))
+    return combine_group_rosters(
+        [read_group_roster(file.file, name) for file, name in zip(files, names, strict=True)]
+    )
 
 
 @router.post("/teachers/preview")
@@ -76,8 +87,12 @@ def students_step(file: UploadFile, session: ReadSession, groups: UploadFile | N
 
 
 @router.post("/rosters/preview")
-def rosters_step(files: list[UploadFile], session: ReadSession):
-    data = _rosters_files(files)
+def rosters_step(
+    files: list[UploadFile],
+    session: ReadSession,
+    schools: Annotated[list[str] | None, Form()] = None,
+):
+    data = _rosters_files(files, schools)
     return {
         "files": len(files),
         "teachers": teachers_preview(session, list(data.teachers), list(data.groups)),
@@ -100,7 +115,9 @@ def _run(
     rosters: list[UploadFile] | None,
     legacy: UploadFile | None,
     confirmation: str | None,
+    schools: list[str] | None = None,
 ):
+    school_names = clean_schools(schools, len(rosters or [])) if rosters else []
     payloads = {
         name: file.file.read()
         for name, file in (
@@ -118,12 +135,17 @@ def _run(
     hashes = {name: sha256(data).hexdigest() for name, data in payloads.items()}
     hashes.update(
         {
-            f"rosters:{index}:{filename}": sha256(data).hexdigest()
+            f"rosters:{index}:{filename}": sha256(data + school_names[index].encode()).hexdigest()
             for index, (filename, data) in enumerate(roster_payloads)
         }
     )
     roster_data = (
-        combine_group_rosters([read_group_roster(BytesIO(data)) for _, data in roster_payloads])
+        combine_group_rosters(
+            [
+                read_group_roster(BytesIO(data), school_names[index])
+                for index, (_, data) in enumerate(roster_payloads)
+            ]
+        )
         if roster_payloads
         else None
     )
@@ -163,6 +185,7 @@ def run_preview(
     students: UploadFile | None = None,
     rosters: list[UploadFile] | None = None,
     legacy: UploadFile | None = None,
+    schools: Annotated[list[str] | None, Form()] = None,
 ):
     result = _run(
         request,
@@ -172,6 +195,7 @@ def run_preview(
         rosters=rosters,
         legacy=legacy,
         confirmation=None,
+        schools=schools,
     )
     # The last cloud backup is what the school falls back to if the import goes wrong.
     return {**result, "backup": backup_state(request)}
@@ -186,6 +210,7 @@ def run_apply(
     students: UploadFile | None = None,
     rosters: list[UploadFile] | None = None,
     legacy: UploadFile | None = None,
+    schools: Annotated[list[str] | None, Form()] = None,
 ):
     return _run(
         request,
@@ -195,6 +220,7 @@ def run_apply(
         rosters=rosters,
         legacy=legacy,
         confirmation=confirmation,
+        schools=schools,
     )
 
 

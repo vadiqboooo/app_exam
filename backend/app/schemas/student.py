@@ -12,6 +12,10 @@ class StudentRead(Schema):
     name_key: str
     grade: int | None
     is_active: bool
+    phone: str | None = None
+    school: str | None = None
+    self_registered: bool = False
+    is_pending: bool = False
     has_code: bool = False
     locked_until: datetime | None = None
     last_login_at: datetime | None = None

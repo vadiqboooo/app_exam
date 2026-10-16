@@ -28,6 +28,7 @@ import { HwBackdrop } from '../../halloween/Chrome';
 import { useHalloween } from '../../halloween/theme';
 import { dateRange } from '../../lib/adminEvents';
 import { HalloweenHome } from './HalloweenHome';
+import { PendingNote } from '../../components/PendingNote';
 
 const month = (value: string) =>
   new Intl.DateTimeFormat('ru-RU', { month: 'short' }).format(new Date(value)).replace('.', '').toUpperCase();
@@ -90,6 +91,7 @@ export function AvailableExams() {
   const bookingPanel = bookingOpen && selectedGroup && (
     <section className="inline-booking-panel booking-flow-panel" aria-label="Запись на экзамен">
       <div className="inline-booking-body">
+        {data.student.is_pending && <PendingNote />}
         {bookableGroups.length > 1 && (
           <div className="booking-event-selector" role="tablist" aria-label="Доступные пробники">
             {bookableGroups.map((subjects, index) => (
@@ -307,6 +309,12 @@ export function AvailableExams() {
         <p>Здесь ваши записи на пробники и ближайшие экзамены.</p>
       </div>
       <ErrorNotice message={action.error} />
+      {data.student.is_pending && (
+        <div className="info-panel">
+          Ваша заявка ещё не подтверждена. Вы уже можете записаться на пробник, но запись станет окончательной
+          после звонка администратора.
+        </div>
+      )}
       {!data.student.is_active && (
         <div className="info-panel">
           Ваш профиль находится в архиве. История результатов доступна, а для новой записи обратитесь к
@@ -425,6 +433,7 @@ export function AvailableExams() {
                     </span>
                     <h3>{exam.subject}</h3>
                     <p>{examTitle(exam)}</p>
+                    {data.student.is_pending && participation.status === 'registered' && <PendingNote />}
                     <div className="schedule-location">
                       {slot ? (
                         <>
@@ -446,7 +455,11 @@ export function AvailableExams() {
                   </div>
                   <div className="schedule-status-block">
                     <span>{String(index + 1).padStart(2, '0')}</span>
-                    <StatusBadge status={participation.status} />
+                    {data.student.is_pending && participation.status === 'registered' ? (
+                      <span className="pending-badge">Ждёт звонка</span>
+                    ) : (
+                      <StatusBadge status={participation.status} />
+                    )}
                     {participation.status === 'registered' && (
                       <div className="schedule-record-actions">
                         {editable && slot && (

@@ -202,7 +202,11 @@ def students_preview(
         elif active[student.id] != desired:
             status = "changed_groups"
             was = ", ".join(sorted(active[student.id])) or "без групп"
-        elif student.full_name != record.full_name or student.grade != record.grade:
+        elif (
+            student.full_name != record.full_name
+            or student.grade != record.grade
+            or (record.school is not None and student.school != record.school)
+        ):
             status = "updated"
         else:
             status = "unchanged"
@@ -215,7 +219,9 @@ def students_preview(
         rows.append(
             {"name": record.full_name, "grade": record.grade, "groups": label, "status": status}
         )
-    absent = sum(1 for s in students if s.is_active and s.id not in matched)
+    absent = sum(
+        1 for s in students if s.is_active and not s.self_registered and s.id not in matched
+    )
     rows.sort(key=lambda row: row["status"] == "unchanged")
     return {
         "total": len(records),

@@ -17,7 +17,7 @@ export function ExamDetail() {
   const [adding, setAdding] = useState(false);
   if (!exam) return <EmptyState title="Экзамен не найден" />;
   const rows = data.participations.filter((p) => p.exam_id === exam.id);
-  const available = data.students.filter((s) => s.is_active && !rows.some((p) => p.student_id === s.id));
+  const available = data.students.filter((s) => s.is_active && !s.is_pending && !rows.some((p) => p.student_id === s.id));
   return (
     <div className="stack page-stack">
       <Link className="back-link" to={exam.event_id ? `/exam-events/${exam.event_id}` : '/exams'}>

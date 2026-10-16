@@ -157,6 +157,7 @@ def _synchronize(
                 external_id=record.external_id,
                 grade=record.grade,
                 is_active=record.is_active,
+                school=record.school,
             )
             session.add(student)
             session.flush()
@@ -219,6 +220,7 @@ def _synchronize(
             student.full_name != record.full_name
             or student.grade != record.grade
             or student.is_active != record.is_active
+            or (record.school is not None and student.school != record.school)
             or (record.external_id is not None and student.external_id != record.external_id)
         )
         if not is_new:
@@ -246,6 +248,8 @@ def _synchronize(
                 )
         student.full_name, student.name_key = record.full_name, key
         student.grade, student.is_active = record.grade, record.is_active
+        if record.school is not None:
+            student.school = record.school
         if record.external_id is not None:
             student.external_id = record.external_id
         for group_id in set(current) - desired:
@@ -258,7 +262,7 @@ def _synchronize(
     for student in students:
         if selected_grades is not None and student.grade not in selected_grades:
             continue
-        if student.id not in seen_students:
+        if student.id not in seen_students and not student.self_registered:
             if student.is_active:
                 report.changes["left"].append({"full_name": student.full_name})
             report.left += int(student.is_active)

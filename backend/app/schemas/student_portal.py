@@ -9,6 +9,13 @@ class StudentLogin(Schema):
     code: str | None = None
 
 
+class StudentSignup(Schema):
+    last_name: NonEmpty
+    first_name: NonEmpty
+    code: str = Field(pattern=r"^\d{6}$")
+    phone: str = Field(min_length=10, max_length=24)
+
+
 class StudentParticipation(Schema):
     id: int
     exam_id: int

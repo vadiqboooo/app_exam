@@ -1,4 +1,6 @@
-from sqlalchemy import CheckConstraint
+from datetime import datetime
+
+from sqlalchemy import CheckConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.access import AccessCodeMixin
@@ -15,3 +17,11 @@ class Student(AccessCodeMixin, Base):
     name_key: Mapped[str] = mapped_column(index=True)
     grade: Mapped[int | None]
     is_active: Mapped[bool] = mapped_column(default=True)
+    phone: Mapped[str | None]
+    # The school the pupil attends (set per file when a group roster is imported).
+    school: Mapped[str | None]
+    # Signed up on the site (not from the school roster): imports never archive them.
+    self_registered: Mapped[bool] = mapped_column(default=False, server_default=false())
+    # Waiting for an administrator to confirm the application; cannot log in yet.
+    is_pending: Mapped[bool] = mapped_column(default=False, server_default=false())
+    requested_at: Mapped[datetime | None]
