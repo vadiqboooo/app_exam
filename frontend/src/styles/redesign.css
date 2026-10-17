@@ -1893,3 +1893,12 @@
   font-weight: 700;
   color: #3d2b99;
 }
+
+.lg-agree a {
+  color: #5c42bd;
+  font-weight: 700;
+  text-decoration: underline;
+}
+.lg-page.lg-hw .lg-agree a {
+  color: #ff9a3c;
+}

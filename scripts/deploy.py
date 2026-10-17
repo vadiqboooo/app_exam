@@ -1578,11 +1578,29 @@ def public_url(cfg: Config, plan: Plan, https: bool) -> str:
     return f"http://{cfg.host}" + ("" if plan.public_port == 80 else f":{plan.public_port}")
 
 
-def verify(remote: Remote, cfg: Config, plan: Plan, https: bool) -> None:
+def verify(remote: Remote, cfg: Config, plan: Plan, https: bool, strict: bool = True) -> None:
+    """Checks the site through nginx. An update or a rollback has already put the app on the air
+    by this point, so there a failure is a warning that says what was seen, not an abort."""
     host_header = plan.domain or "_"
     local = f"curl -fsS -H 'Host: {host_header}' http://127.0.0.1:{plan.public_port}/health"
     if remote.run(local, check=False).code != 0:
-        raise DeployError(f"Веб-сервер не отвечает на порту {plan.public_port}")
+        seen = remote.run(
+            f"curl -sS -o /dev/null -w '%{{http_code}}' -H 'Host: {host_header}' "
+            f"http://127.0.0.1:{plan.public_port}/health",
+            check=False,
+        ).out.strip()
+        detail = f"ответ {seen}" if seen not in ("", "000") else "соединение не установлено"
+        message = (
+            f"Веб-сервер не отвечает на порту {plan.public_port} по имени «{host_header}» "
+            f"({detail})"
+        )
+        if strict:
+            raise DeployError(message)
+        say(paint(f"      ! {message}", "33"))
+        say("      Само приложение запущено и отвечает. Откройте сайт в браузере. Если он не")
+        say("      открывается, проверьте, что nginx указывает на порт приложения:")
+        say(f"      grep proxy_pass {SITE_AVAILABLE}   (приложение слушает порт {plan.app_port})")
+        return
     if cfg.dry_run:
         return
     session = api_call(remote, "/api/session")
@@ -1875,6 +1893,8 @@ def manage(cfg: Config) -> int:
             state = dict(probe.previous) if cfg.dry_run else current_deployment(probe)
             if state.get("legacy"):
                 step.note("запись о прошлом развёртывании не найдена: правила файрвола не трогаю")
+                if not cfg.dry_run:
+                    fill_legacy(remote, state)
             others = {name for _, (name, pid) in probe.listeners.items() if pid != probe.own_pid}
             step.note(f"других программ на портах: {len(others)}, они затронуты не будут")
 
@@ -2117,11 +2137,44 @@ def replace_env_value(text: str, name: str, value: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def parse_server_ports(unit: str, site: str) -> dict:
+    """What an earlier deployment really set up, read from its own files.
+
+    An install that left no record must not be guessed at: the app may sit on 8001 and nginx
+    point there, and a restart on the "usual" port would cut them apart."""
+    found: dict = {}
+    port = re.search(r"--port\s+(\d+)", unit)
+    if port:
+        found["app_port"] = int(port.group(1))
+    listen = re.search(r"^\s*listen\s+(\d+)", site, re.MULTILINE)
+    if listen:
+        found["public_port"] = int(listen.group(1))
+    name = re.search(r"^\s*server_name\s+([^;\s]+)", site, re.MULTILINE)
+    if name and name.group(1) != "_":
+        found["domain"] = name.group(1)
+    if "ssl_certificate" in site or re.search(r"listen\s+443", site):
+        found["https"] = True
+    return found
+
+
+def fill_legacy(remote: Remote, state: dict) -> list[str]:
+    """Replaces the guessed ports of a legacy install with the real ones. Returns what was read."""
+    found = parse_server_ports(
+        remote.read("/etc/systemd/system/probnik.service") or "", remote.read(SITE_AVAILABLE) or ""
+    )
+    state.update(found)
+    return [f"{name} {value}" for name, value in found.items()]
+
+
 def installed_state(remote: Remote, step: Step) -> dict:
     probe = inspect_server(remote, remote.cfg)
     state = dict(probe.previous) if remote.cfg.dry_run else current_deployment(probe)
     if state.get("legacy"):
-        step.note("запись о прошлом развёртывании не найдена: беру стандартные настройки")
+        read = [] if remote.cfg.dry_run else fill_legacy(remote, state)
+        step.note(
+            "записи о прошлом развёртывании нет: настройки прочитаны с сервера"
+            + (f" ({', '.join(read)})" if read else "")
+        )
     remote.cfg.app_port = state.get("app_port", DEFAULT_APP_PORT)
     return state
 
@@ -2198,7 +2251,7 @@ def update(cfg: Config) -> int:
             start_service(remote, plan)
 
         with progress.step("Проверяю, что всё работает"):
-            verify(remote, cfg, plan, bool(state.get("https")))
+            verify(remote, cfg, plan, bool(state.get("https")), strict=False)
 
         if not cfg.dry_run:
             state["version"] = version
@@ -2339,7 +2392,7 @@ def rollback_work(cfg: Config, remote: Remote, progress: Progress, temp: Path) -
     )
     with progress.step("Перезапускаю и проверяю приложение"):
         start_service(remote, plan)
-        verify(remote, cfg, plan, bool(state.get("https")))
+        verify(remote, cfg, plan, bool(state.get("https")), strict=False)
 
     if not cfg.dry_run:
         state["version"], state["commit"] = short, full

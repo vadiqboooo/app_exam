@@ -204,3 +204,66 @@ def test_a_failed_pull_stops_the_update_with_the_reason(deploy, repos):
 def test_without_git_the_files_on_this_computer_are_used(deploy, tmp_path):
     version, notes = deploy.fetch_updates(tmp_path)
     assert version is None and "не git-репозиторий" in notes[0]
+
+
+class FakeServer:
+    """Answers reads and commands like a server that an old script set up."""
+
+    def __init__(self, files=None, http_code="404"):
+        self.files, self.http_code, self.commands = files or {}, http_code, []
+        self.cfg = type("Cfg", (), {"dry_run": False})()
+
+    def read(self, path):
+        return self.files.get(path)
+
+    def run(self, command, check=True, timeout=0):
+        self.commands.append(command)
+        failing = "curl -fsS" in command
+        out = self.http_code if "%{http_code}" in command else ""
+        return type("Result", (), {"code": 22 if failing else 0, "out": out, "err": ""})()
+
+
+def test_an_install_without_a_record_keeps_the_ports_it_really_uses(deploy):
+    # The app was put on 8001 because 8000 was busy then; nginx points there too.
+    unit = deploy.render_unit(8001)
+    site = deploy.render_nginx(None, 8001, 80)
+    assert deploy.parse_server_ports(unit, site) == {"app_port": 8001, "public_port": 80}
+
+    server = FakeServer(
+        {"/etc/systemd/system/probnik.service": unit, deploy.SITE_AVAILABLE: site}
+    )
+    state = {"legacy": True, "app_port": deploy.DEFAULT_APP_PORT, "public_port": 80}
+    read = deploy.fill_legacy(server, state)
+    assert state["app_port"] == 8001 and "app_port 8001" in read  # not the guessed 8000
+
+
+def test_a_domain_and_https_of_an_old_install_are_read_from_nginx(deploy):
+    site = deploy.render_nginx("school.example.com", 8000, 80) + (
+        "server {\n    listen 443 ssl;\n    server_name school.example.com;\n"
+        "    ssl_certificate /etc/letsencrypt/live/x/fullchain.pem;\n}\n"
+    )
+    found = deploy.parse_server_ports(deploy.render_unit(8000), site)
+    assert found["domain"] == "school.example.com" and found["https"] is True
+    assert found["app_port"] == 8000 and found["public_port"] == 80
+
+
+def test_nothing_is_guessed_when_the_files_are_missing(deploy):
+    assert deploy.parse_server_ports("", "") == {}
+
+
+def make_cfg_plan(deploy):
+    return deploy.Plan(8000, 80, False, False, None, [])
+
+
+def test_after_an_update_a_silent_nginx_is_a_warning_that_says_what_was_seen(deploy, capsys):
+    server = FakeServer(http_code="404")
+    deploy.verify(server, server.cfg, make_cfg_plan(deploy), False, strict=False)
+    out = capsys.readouterr().out
+    assert "порту 80" in out and "ответ 404" in out
+    assert "Само приложение запущено" in out and "proxy_pass" in out
+
+
+def test_a_full_deployment_still_stops_when_nginx_does_not_answer(deploy):
+    server = FakeServer(http_code="000")
+    with pytest.raises(deploy.DeployError, match="соединение не установлено"):
+        deploy.verify(server, server.cfg, make_cfg_plan(deploy), False)

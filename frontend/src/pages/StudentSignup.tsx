@@ -12,6 +12,8 @@ import { useHalloween } from '../halloween/theme';
 
 type Step = 1 | 2 | 3;
 
+const CONSENT_URL = 'https://garryschool.ru/soglasie';
+
 const labels: Record<1 | 2 | 3, string> = {
   1: 'ШАГ 1 ИЗ 3 · ИМЯ',
   2: 'ШАГ 2 ИЗ 3 · ПАРОЛЬ',
@@ -192,7 +194,12 @@ export function StudentSignup({
                 </label>
                 <label className="lg-agree">
                   <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
-                  <span>Согласен на обработку персональных данных</span>
+                  <span>
+                    Согласен на{' '}
+                    <a href={CONSENT_URL} target="_blank" rel="noopener noreferrer">
+                      обработку персональных данных
+                    </a>
+                  </span>
                 </label>
               </>
             )}
