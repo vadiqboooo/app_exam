@@ -10,6 +10,8 @@ import { plural } from '../../lib/adminEvents';
 import { CodeAction, CodeBadge, Toast } from '../../components/CodeCell';
 import { AddStudentDialog } from '../../components/AddStudentDialog';
 import { Button } from '../../components/Button';
+import { EditStudentDialog } from '../../components/EditStudentDialog';
+import { MergeApplicationDialog } from '../../components/MergeApplicationDialog';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { EmptyState } from '../../components/EmptyState';
 import type { Student, StudentApplication } from '../../types';
@@ -51,6 +53,9 @@ export function Students() {
   const [group, setGroup] = useState('');
   const [status, setStatus] = useState<StatusFilter>('active');
   const [resetting, setResetting] = useState<Student>();
+  const [editing, setEditing] = useState<Student>();
+  const [archiving, setArchiving] = useState<Student>();
+  const [merging, setMerging] = useState<StudentApplication>();
   const [toast, setToast] = useState('');
   const { busy, error, run } = useAction();
   useEffect(() => {
@@ -88,6 +93,7 @@ export function Students() {
   const rows = students.filter(
     (row) =>
       (!group || row.groups.some((g) => g.id === Number(group))) &&
+      (!schoolFilter || row.student.school === schoolFilter) &&
       row.student.full_name.toLowerCase().includes(search.trim().toLowerCase()),
   );
   const statusTabs: [StatusFilter, string, number][] = [
@@ -239,6 +245,14 @@ export function Students() {
                   type="button"
                   className="sc-action"
                   disabled={busy}
+                  onClick={() => setMerging(item)}
+                >
+                  Объединить
+                </button>
+                <button
+                  type="button"
+                  className="sc-action"
+                  disabled={busy}
                   onClick={() => setRejecting(item)}
                 >
                   Отклонить
@@ -346,15 +360,21 @@ export function Students() {
                     {student.is_active ? <CodeBadge state={state} /> : <span>—</span>}
                     <span>{lastLogin(student.last_login_at)}</span>
                     <span className="sc-act">
-                      {student.is_active ? (
+                      {student.is_active && (
                         <CodeAction
                           state={state}
                           busy={busy}
                           onReset={() => setResetting(student)}
                           onUnlock={() => unlock(student)}
                         />
-                      ) : (
-                        '—'
+                      )}
+                      <button type="button" className="sc-action" onClick={() => setEditing(student)}>
+                        Изменить
+                      </button>
+                      {student.is_active && (
+                        <button type="button" className="sc-action" onClick={() => setArchiving(student)}>
+                          В архив
+                        </button>
                       )}
                     </span>
                   </div>
@@ -397,6 +417,53 @@ export function Students() {
           error={error}
           onClose={() => setRejecting(undefined)}
           onConfirm={() => reject(rejecting)}
+        />
+      )}
+      {editing && (
+        <EditStudentDialog
+          student={editing}
+          schools={schoolNames}
+          onClose={() => setEditing(undefined)}
+          onSaved={(name) => {
+            setEditing(undefined);
+            void refresh();
+            setToast(`${name}: данные сохранены`);
+          }}
+        />
+      )}
+      {merging && (
+        <MergeApplicationDialog
+          application={merging}
+          students={roster}
+          busy={busy}
+          error={error}
+          onClose={() => setMerging(undefined)}
+          onMerge={(target) =>
+            void run(async () => {
+              await api.students.mergeApplication(merging.id, target.id);
+              await Promise.all([refresh(), loadApplications()]);
+              setMerging(undefined);
+              setToast(`Заявка объединена с учеником ${target.full_name}`);
+            })
+          }
+        />
+      )}
+      {archiving && (
+        <ConfirmDialog
+          title="Убрать ученика в архив?"
+          text={`${archiving.full_name} пропадёт из списка активных и не сможет войти. Результаты сохранятся, ученика можно найти во вкладке «Архив».`}
+          confirm="В архив"
+          busy={busy}
+          error={error}
+          onClose={() => setArchiving(undefined)}
+          onConfirm={() =>
+            void run(async () => {
+              await api.students.archive(archiving.id);
+              await refresh();
+              setArchiving(undefined);
+              setToast(`${archiving.full_name} перенесён в архив`);
+            })
+          }
         />
       )}
       {resetting && (

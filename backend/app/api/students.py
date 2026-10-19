@@ -212,6 +212,46 @@ def approve_application(student_id: int, data: ApplicationApprove, session: Writ
     return student
 
 
+class ApplicationMerge(Schema):
+    target_id: int = Field(gt=0)
+
+
+@router.post(
+    "/applications/{student_id}/merge",
+    response_model=StudentRead,
+    dependencies=[Depends(require_admin)],
+)
+def merge_application(student_id: int, data: ApplicationMerge, session: WriteSession):
+    """Attach a repeated sign-up to the pupil who already exists instead of creating a duplicate.
+
+    The applicant's password and bookings move to the existing pupil; the application disappears.
+    """
+    application = pending_student(session, student_id)
+    target = get_or_404(session, Student, data.target_id)
+    if target.id == application.id or target.is_pending:
+        raise HTTPException(400, "Выберите существующего ученика")
+    have = set(session.scalars(select(Participation.exam_id).where(Participation.student_id == target.id)))
+    for participation in session.scalars(
+        select(Participation).where(Participation.student_id == application.id)
+    ):
+        if participation.exam_id in have:
+            session.delete(participation)
+        else:
+            participation.student_id = target.id
+    if application.access_code_hash:
+        target.access_code_hash = application.access_code_hash
+        target.failed_attempts = 0
+        target.lock_level = 0
+        target.locked_until = None
+    target.phone = application.phone or target.phone
+    target.is_active = True
+    session.flush()
+    session.expire(application)
+    session.delete(application)
+    session.flush()
+    return target
+
+
 @router.delete("/applications/{student_id}", dependencies=[Depends(require_admin)])
 def reject_application(student_id: int, session: WriteSession):
     # The person may already have signed up for exams: those bookings go with the application.
@@ -314,6 +354,45 @@ def memberships(
             StudyGroup.teacher_id == current_teacher_id, StudyGroup.is_active.is_(True)
         )
     return session.scalars(query.order_by(Membership.id).limit(limit).offset(offset)).all()
+
+
+class StudentUpdate(Schema):
+    last_name: NonEmpty
+    first_name: NonEmpty
+    phone: str | None = None
+    grade: int | None = Field(default=None, ge=1, le=11)
+    school: str | None = None
+
+
+@router.put("/{student_id}", response_model=StudentRead, dependencies=[Depends(require_admin)])
+def update_student(student_id: int, data: StudentUpdate, session: WriteSession):
+    student = get_or_404(session, Student, student_id)
+    full_name = " ".join(f"{data.last_name} {data.first_name}".split())
+    key = normalize_name(full_name)
+    taken = session.scalar(
+        select(Student.id).where(
+            Student.id != student.id,
+            (Student.name_key == key) | Student.name_key.startswith(key + " ", autoescape=True),
+        )
+    )
+    if taken is not None:
+        raise HTTPException(409, "Ученик с такими фамилией и именем уже есть. Объедините их через заявку")
+    student.full_name = full_name
+    student.name_key = key
+    student.phone = (data.phone or "").strip() or None
+    student.grade = data.grade
+    student.school = (data.school or "").strip() or None
+    session.flush()
+    return student
+
+
+@router.delete("/{student_id}", response_model=StudentRead, dependencies=[Depends(require_admin)])
+def archive_student(student_id: int, session: WriteSession):
+    """Removing a pupil sends them to the archive; their results stay."""
+    student = get_or_404(session, Student, student_id)
+    student.is_active = False
+    session.flush()
+    return student
 
 
 @router.post(

@@ -28,6 +28,7 @@ export function Results() {
   const [group, setGroup] = useState('');
   const [view, setView] = useState<'students' | 'exam'>('students');
   const [query, setQuery] = useState('');
+  const [school, setSchool] = useState('');
   const [onlyPending, setOnlyPending] = useState(false);
   const session = loadSession();
   const teacher = session?.role === 'teacher';
@@ -35,8 +36,17 @@ export function Results() {
   const byStudent = !teacher && view === 'students';
   const needle = query.trim().toLowerCase();
   const people = byStudent
-    ? buildStudentResults(data).filter((person) => person.student.full_name.toLowerCase().includes(needle))
+    ? buildStudentResults(data).filter(
+        (person) =>
+          person.student.full_name.toLowerCase().includes(needle) &&
+          (!school || person.student.school === school),
+      )
     : [];
+  const schoolNames = teacher
+    ? []
+    : [...new Set(data.students.map((s) => s.school).filter((name): name is string => !!name))].sort((a, b) =>
+        a.localeCompare(b, 'ru'),
+      );
   const peopleShown = onlyPending ? people.filter((person) => person.pending).length : people.length;
 
   const events = groupExams(data.exams)
@@ -67,6 +77,7 @@ export function Results() {
     if (subject && exam.subject !== subject) return [];
     if (status && item.status !== status) return [];
     if (groupMembers && !groupMembers.has(student.id)) return [];
+    if (!teacher && school && student.school !== school) return [];
     if (!teacher && needle && !student.full_name.toLowerCase().includes(needle)) return [];
     return [{ item, student, exam }];
   });
@@ -193,6 +204,17 @@ export function Results() {
                 onChange={(e) => setQuery(e.target.value)}
               />
             </label>
+            {schoolNames.length > 0 && (
+              <label className="rs-f-subject">
+                Школа
+                <select aria-label="Фильтр по школе" value={school} onChange={(e) => setSchool(e.target.value)}>
+                  <option value="">Все школы</option>
+                  {schoolNames.map((name) => (
+                    <option key={name}>{name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             {byStudent && <span className="rs-found">Найдено: {peopleShown}</span>}
           </div>
         )}

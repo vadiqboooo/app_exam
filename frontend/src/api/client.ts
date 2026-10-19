@@ -165,6 +165,13 @@ export const api = {
     applications: () => request<StudentApplication[]>('/students/applications'),
     approveApplication: (id: number, grade: number, group_id?: number) =>
       request<Student>(`/students/applications/${id}/approve`, json('POST', { grade, group_id })),
+    mergeApplication: (id: number, target_id: number) =>
+      request<Student>(`/students/applications/${id}/merge`, json('POST', { target_id })),
+    update: (
+      id: number,
+      data: { last_name: string; first_name: string; phone: string | null; grade: number | null; school: string | null },
+    ) => request<Student>(`/students/${id}`, json('PUT', data)),
+    archive: (id: number) => request<Student>(`/students/${id}`, { method: 'DELETE' }),
     rejectApplication: (id: number) =>
       request<{ status: string }>(`/students/applications/${id}`, { method: 'DELETE' }),
   },
