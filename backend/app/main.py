@@ -20,6 +20,7 @@ from app.api import (
     teacher_portal,
     teachers,
     themes,
+    training,
 )
 from app.api.dependencies import require_operator
 from app.config import STATIC_ROOT, Settings
@@ -46,6 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         groups,
         subjects,
         teachers,
+        training,
         themes,
         exams,
         exam_events,

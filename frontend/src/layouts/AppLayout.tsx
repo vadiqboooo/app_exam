@@ -12,8 +12,9 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { api } from '../api/client';
-import type { Session } from '../types';
+import type { Session, Training } from '../types';
 import { Button } from '../components/Button';
+import { TrainingButton, TrainingDialog } from '../components/TeacherTraining';
 import { useHalloween } from '../halloween/theme';
 import { HalloweenShell } from './HalloweenShell';
 
@@ -54,6 +55,16 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
       .mine()
       .then((subjects) => setResponsible(subjects.length > 0))
       .catch(() => setResponsible(false));
+  }, [teaches, session.token]);
+  // Progress of the guide for whoever teaches; the button stays hidden until it is known.
+  const [training, setTraining] = useState<Training | null>(null);
+  const [trainingOpen, setTrainingOpen] = useState(false);
+  useEffect(() => {
+    if (!teaches) return;
+    api.training
+      .get()
+      .then(setTraining)
+      .catch(() => setTraining(null));
   }, [teaches, session.token]);
   const staffRoles = session.roles?.map((role) => roleNames[role]).join(' · ');
   const roleLabel =
@@ -116,7 +127,7 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
               : ''
           }`}
         >
-          <aside className="sidebar">
+          <aside className={`sidebar${teaches && training ? ' has-training' : ''}`}>
             <NavLink to="/" className="brand">
               <span className="brand-mark">Г</span>
               <span>
@@ -131,6 +142,9 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
               </span>
             </NavLink>
             <div className="mobile-account">
+              {teaches && training && (
+                <TrainingButton compact training={training} onOpen={() => setTrainingOpen(true)} />
+              )}
               <span className="avatar">{initials(session.name)}</span>
               <span className="mobile-account-name">
                 {session.name}
@@ -149,6 +163,9 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
                 </NavLink>
               ))}
             </nav>
+            {teaches && training && (
+              <TrainingButton training={training} onOpen={() => setTrainingOpen(true)} />
+            )}
             <div className="sidebar-note">
               <HelpCircle size={20} />
               <strong>Шаг за шагом к результату</strong>
@@ -201,6 +218,9 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
             </footer>
           </div>
         </div>
+        {trainingOpen && training && (
+          <TrainingDialog training={training} onChange={setTraining} onClose={() => setTrainingOpen(false)} />
+        )}
       </TopbarSlotContext.Provider>
     </SectionTitleContext.Provider>
   );

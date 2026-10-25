@@ -12,6 +12,7 @@ import { useLoad } from '../../hooks/useLoad';
 import { useWorkspace } from '../../layouts/Workspace';
 import { codeState, lastLogin, type CodeState } from '../../lib/accessCode';
 import { plural } from '../../lib/adminEvents';
+import { trainingHint, trainingLabels, trainingState } from '../../lib/training';
 import type { Group, StaffRole, Teacher, TeacherWrite } from '../../types';
 
 const loadTeachers = () => api.teachers.list();
@@ -174,6 +175,7 @@ export function Teachers() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [status, setStatus] = useState<StatusFilter>('active');
+  const [noTraining, setNoTraining] = useState(false);
   const [editing, setEditing] = useState<Teacher | null | undefined>();
   const [deleting, setDeleting] = useState<Teacher>();
   const [resetting, setResetting] = useState<Teacher>();
@@ -194,9 +196,14 @@ export function Teachers() {
     (row) => status === 'all' || (status === 'active' ? row.teacher.is_active : !row.teacher.is_active),
   );
   const count = (state: CodeState) => byStatus.filter((row) => row.state === state).length;
+  // Only active teachers are expected to take the guide.
+  const needsTraining = (teacher: Teacher) =>
+    teacher.is_active && teacher.roles.includes('teacher') && trainingState(teacher) !== 'done';
+  const noTrainingCount = all.filter((row) => needsTraining(row.teacher)).length;
   const rows = byStatus.filter(
     (row) =>
       (filter === 'all' || row.state === filter) &&
+      (!noTraining || needsTraining(row.teacher)) &&
       row.teacher.name.toLowerCase().includes(search.trim().toLowerCase()),
   );
   const statusTabs: [StatusFilter, string, number][] = [
@@ -275,6 +282,14 @@ export function Teachers() {
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          className="sc-notrain"
+          aria-pressed={noTraining}
+          onClick={() => setNoTraining(!noTraining)}
+        >
+          Без обучения · {noTrainingCount}
+        </button>
         <Button icon={<Plus size={17} />} onClick={() => setEditing(null)}>
           Добавить сотрудника
         </Button>
@@ -291,6 +306,7 @@ export function Teachers() {
               РОЛИ · <small>можно несколько</small>
             </span>
             <span>ГРУППЫ</span>
+            <span>ОБУЧЕНИЕ</span>
             <span>СТАТУС</span>
             <span>КОД ВХОДА</span>
             <span>ПОСЛЕДНИЙ ВХОД</span>
@@ -331,6 +347,19 @@ export function Teachers() {
                   ? plural(teacher.group_ids.length, 'группа', 'группы', 'групп')
                   : '—'}
               </span>
+              {teacher.is_active && teacher.roles.includes('teacher') ? (
+                <span className="sc-training">
+                  <span className={`sc-training-state is-${trainingState(teacher)}`}>
+                    {trainingLabels[trainingState(teacher)]}
+                  </span>
+                  <small>{trainingHint(teacher)}</small>
+                </span>
+              ) : (
+                <span className="sc-training">
+                  <span className="sc-training-none">—</span>
+                  {teacher.is_active && <small>не требуется</small>}
+                </span>
+              )}
               <span>
                 <span className={`sc-student-state ${teacher.is_active ? 'is-active' : 'is-archived'}`}>
                   {teacher.is_active ? 'Активен' : 'В архиве'}

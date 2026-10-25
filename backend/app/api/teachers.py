@@ -51,6 +51,8 @@ def _read(teacher: Staff, group_ids: list[int]) -> dict:
         "has_code": teacher.has_code,
         "locked_until": _utc(teacher.locked_until),
         "last_login_at": _utc(teacher.last_login_at),
+        "training_groups_at": _utc(teacher.training_groups_at),
+        "training_outside_at": _utc(teacher.training_outside_at),
     }
 
 

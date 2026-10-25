@@ -38,6 +38,8 @@ import type {
   Teacher,
   TeacherWrite,
   TeachersStep,
+  Training,
+  TrainingPart,
   ThemeSetting,
   EnabledThemes,
 } from '../types';
@@ -193,6 +195,10 @@ export const api = {
     delete: (id: number) => request<{ ok: boolean }>(`/teachers/${id}`, { method: 'DELETE' }),
     resetCode: (id: number) => request<Teacher>(`/teachers/${id}/reset-code`, { method: 'POST' }),
     unlock: (id: number) => request<Teacher>(`/teachers/${id}/unlock`, { method: 'POST' }),
+  },
+  training: {
+    get: () => request<Training>('/training'),
+    finish: (part: TrainingPart) => request<Training>(`/training/${part}`, { method: 'POST' }),
   },
   subjects: {
     list: () => all<SubjectSetting>('/subjects'),

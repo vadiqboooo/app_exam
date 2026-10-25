@@ -102,7 +102,15 @@ export interface Teacher {
   has_code: boolean;
   locked_until: string | null;
   last_login_at: string | null;
+  training_groups_at: string | null;
+  training_outside_at: string | null;
 }
+/** When the signed-in employee finished each part of the guide (`null` — not yet). */
+export interface Training {
+  groups_at: string | null;
+  outside_at: string | null;
+}
+export type TrainingPart = 'groups' | 'outside';
 export interface TeacherWrite {
   last_name: string;
   first_name: string;

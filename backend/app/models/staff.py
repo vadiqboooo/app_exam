@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import CheckConstraint, false, true
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,6 +23,9 @@ class Staff(AccessCodeMixin, Base):
     is_teacher: Mapped[bool] = mapped_column(default=True, server_default=true())
     is_admin: Mapped[bool] = mapped_column(default=False, server_default=false())
     is_responsible: Mapped[bool] = mapped_column(default=False, server_default=false())
+    # When the teacher finished each part of the guide in the teacher's cabinet.
+    training_groups_at: Mapped[datetime | None]
+    training_outside_at: Mapped[datetime | None]
 
     @property
     def roles(self) -> list[str]:
