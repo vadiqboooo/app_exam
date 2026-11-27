@@ -12,8 +12,7 @@ import { useLoad } from '../../hooks/useLoad';
 import { useWorkspace } from '../../layouts/Workspace';
 import { codeState, lastLogin, type CodeState } from '../../lib/accessCode';
 import { plural } from '../../lib/adminEvents';
-import { trainingHint, trainingLabels, trainingState } from '../../lib/training';
-import type { Group, StaffRole, Teacher, TeacherWrite } from '../../types';
+import type { Group, StaffRole, Teacher, TeacherWrite, TrainingTeacherProgress } from '../../types';
 
 const loadTeachers = () => api.teachers.list();
 const roleChips: [StaffRole, string][] = [
@@ -171,11 +170,49 @@ const filters: [Filter, string][] = [
 
 export function Teachers() {
   const { data, error, loading, refresh } = useLoad(loadTeachers);
+  const [trainingProgress, setTrainingProgress] = useState<TrainingTeacherProgress[]>([]);
+  useEffect(() => {
+    api.training
+      .adminProgress()
+      .then(setTrainingProgress)
+      .catch(() => setTrainingProgress([]));
+  }, []);
+  const progressByTeacher = new Map(trainingProgress.map((item) => [item.id, item]));
+  const trainingTopicsFor = (teacher: Teacher) => {
+    const reported = progressByTeacher.get(teacher.id)?.topics ?? [];
+    const legacy: TrainingTeacherProgress['topics'] = [
+      { topic_id: -1, title: 'Заполнение пробников: результаты группы', kind: 'legacy' as const, completed_at: teacher.training_groups_at },
+      { topic_id: -2, title: 'Заполнение пробников: ученик не из группы', kind: 'legacy' as const, completed_at: teacher.training_outside_at },
+    ].map((item) => ({
+      ...item,
+      passed: Boolean(item.completed_at),
+      has_video: false,
+      has_material: false,
+      question_count: 0,
+      pass_percent: 0,
+      video_percent: 0,
+      video_position_seconds: 0,
+      material_read: false,
+      best_score: null,
+      attempts: [],
+    }));
+    return [...legacy, ...reported.filter((topic) => topic.topic_id !== -1 && topic.topic_id !== -2)];
+  };
+  const trainingSummary = (teacher: Teacher) => {
+    const topics = trainingTopicsFor(teacher);
+    const passed = topics.filter((item) => item.passed).length;
+    return {
+      total: topics.length,
+      passed,
+      state: topics.length && passed === topics.length ? 'done' : passed ? 'part' : 'none',
+    };
+  };
   const { data: workspace, refresh: refreshWorkspace } = useWorkspace();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [status, setStatus] = useState<StatusFilter>('active');
   const [noTraining, setNoTraining] = useState(false);
+  const [viewingTraining, setViewingTraining] = useState<Teacher | null>(null);
   const [editing, setEditing] = useState<Teacher | null | undefined>();
   const [deleting, setDeleting] = useState<Teacher>();
   const [resetting, setResetting] = useState<Teacher>();
@@ -198,7 +235,10 @@ export function Teachers() {
   const count = (state: CodeState) => byStatus.filter((row) => row.state === state).length;
   // Only active teachers are expected to take the guide.
   const needsTraining = (teacher: Teacher) =>
-    teacher.is_active && teacher.roles.includes('teacher') && trainingState(teacher) !== 'done';
+    teacher.is_active &&
+    teacher.roles.includes('teacher') &&
+    trainingSummary(teacher).total > 0 &&
+    trainingSummary(teacher).state !== 'done';
   const noTrainingCount = all.filter((row) => needsTraining(row.teacher)).length;
   const rows = byStatus.filter(
     (row) =>
@@ -348,12 +388,28 @@ export function Teachers() {
                   : '—'}
               </span>
               {teacher.is_active && teacher.roles.includes('teacher') ? (
-                <span className="sc-training">
-                  <span className={`sc-training-state is-${trainingState(teacher)}`}>
-                    {trainingLabels[trainingState(teacher)]}
+                <button
+                  type="button"
+                  className="sc-training sc-training-open"
+                  onClick={() => {
+                    setViewingTraining(teacher);
+                    void api.training.adminProgress().then(setTrainingProgress).catch(() => undefined);
+                  }}
+                  title="Посмотреть прогресс обучения"
+                >
+                  <span className={`sc-training-state is-${trainingSummary(teacher).state}`}>
+                    {trainingSummary(teacher).total
+                      ? `${trainingSummary(teacher).passed} из ${trainingSummary(teacher).total} тем`
+                      : 'Тем пока нет'}
                   </span>
-                  <small>{trainingHint(teacher)}</small>
-                </span>
+                  <small>
+                    {trainingSummary(teacher).state === 'done'
+                      ? 'обучение пройдено'
+                      : trainingSummary(teacher).passed
+                        ? 'в процессе'
+                        : 'не начинал'}
+                  </small>
+                </button>
               ) : (
                 <span className="sc-training">
                   <span className="sc-training-none">—</span>
@@ -405,6 +461,48 @@ export function Teachers() {
               : undefined
           }
         />
+      )}
+      {viewingTraining && (
+        <Modal title={`Обучение · ${viewingTraining.name}`} onClose={() => setViewingTraining(null)} wide>
+          <div className="sc-training-detail">
+            <p>
+              Пройдено {trainingSummary(viewingTraining).passed} из {trainingSummary(viewingTraining).total} тем
+            </p>
+            {trainingTopicsFor(viewingTraining).map((topic) => (
+              <section key={topic.topic_id} className="sc-training-topic">
+                <div>
+                  <strong>{topic.title}</strong>
+                  <span className={`sc-training-state is-${topic.passed ? 'done' : 'none'}`}>
+                    {topic.passed ? 'Пройдено' : 'В процессе'}
+                  </span>
+                </div>
+                <p>
+                  {topic.kind === 'legacy' && 'Встроенное обучение по заполнению пробников'}
+                  {topic.has_video && `Видео: ${topic.video_percent}%`}
+                  {topic.has_video && (topic.has_material || topic.question_count > 0) && ' · '}
+                  {topic.has_material && `Материал: ${topic.material_read ? 'прочитан' : 'не прочитан'}`}
+                  {topic.has_material && topic.question_count > 0 && ' · '}
+                  {topic.question_count > 0 &&
+                    `Тест: ${topic.best_score ?? '—'} из ${topic.question_count} · зачёт от ${topic.pass_percent}%`}
+                </p>
+                {topic.completed_at && (
+                  <small>Завершено {new Date(topic.completed_at).toLocaleDateString('ru-RU')}</small>
+                )}
+                {topic.attempts.length > 0 && (
+                  <div className="sc-training-attempts">
+                    {topic.attempts.map((attempt) => (
+                      <small key={attempt.id}>
+                        {new Date(attempt.created_at).toLocaleString('ru-RU')} · {attempt.score} из{' '}
+                        {attempt.total}
+                      </small>
+                    ))}
+                  </div>
+                )}
+              </section>
+            ))}
+            {!trainingSummary(viewingTraining).total && <p>Опубликованных тем пока нет.</p>}
+          </div>
+        </Modal>
       )}
       {resetting && (
         <ConfirmDialog

@@ -134,3 +134,39 @@ def test_teacher_keeps_seeing_and_publishing_work_they_entered(client, engine):
     )
     assert published.status_code == 200, published.text
     assert published.json()["status"] == "published"
+
+
+def test_only_admin_can_reopen_a_published_work_for_teacher_correction(client, engine):
+    headers, students, physics, _ = setup(client, engine)
+    payload = result(students["Иванов Иван"], physics)
+    saved = client.post("/api/participations/quick-result", json=payload, headers=headers).json()
+    path = f"/api/participations/{saved['id']}"
+    scores = {"primary_score": 5, "test_score": 50, "result_data": None}
+    published = client.post(path + "/publish", json=scores, headers=headers)
+    assert published.status_code == 200, published.text
+    assert published.json()["published_at"] is not None
+
+    assert client.post(path + "/unpublish", headers=headers).status_code == 403
+    assert (
+        client.patch(path + "/status", json={"status": "checked"}, headers=headers).status_code
+        == 422
+    )
+
+    reopened = client.post(path + "/unpublish")
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["status"] == "checked"
+    assert reopened.json()["published_at"] is None
+    assert reopened.json()["primary_score"] == 5
+    assert reopened.json()["checked_by"] == "Анна Сергеевна"
+    assert client.post(path + "/unpublish").status_code == 422
+
+    payload["primary_score"] = 6
+    corrected = client.post("/api/participations/quick-result", json=payload, headers=headers)
+    assert corrected.status_code == 200, corrected.text
+    assert corrected.json()["primary_score"] == 6
+    assert corrected.json()["status"] == "checked"
+    scores["primary_score"] = 6
+    republished = client.post(path + "/publish", json=scores, headers=headers)
+    assert republished.status_code == 200, republished.text
+    assert republished.json()["status"] == "published"
+    assert republished.json()["published_at"] is not None

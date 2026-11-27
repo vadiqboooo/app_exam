@@ -6,8 +6,9 @@ from app.models.participation import Participation
 from app.models.staff import Staff
 from app.models.student import Student
 from app.models.study_group import GroupCoverage, StudyGroup
-from app.models.subject import Subject, SubjectVariant, VariantEvent
+from app.models.subject import ProgramMaterial, ProgramSection, ProgramTopic, Subject, SubjectVariant, VariantEvent
 from app.models.theme import ThemeSetting
+from app.models.training import TrainingAttempt, TrainingProgress, TrainingQuestion, TrainingTopic
 
 __all__ = [
     "Base",
@@ -22,7 +23,14 @@ __all__ = [
     "GroupCoverage",
     "StudyGroup",
     "Subject",
+    "ProgramSection",
+    "ProgramMaterial",
+    "ProgramTopic",
     "SubjectVariant",
     "ThemeSetting",
+    "TrainingAttempt",
+    "TrainingProgress",
+    "TrainingQuestion",
+    "TrainingTopic",
     "VariantEvent",
 ]

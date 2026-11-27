@@ -9,6 +9,7 @@ import { groupExams } from '../lib/format';
 import { Button } from './Button';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ErrorNotice } from './ErrorNotice';
+import { useWorkspace } from '../layouts/Workspace';
 
 type Mode = 'admin' | 'teacher';
 interface Row {
@@ -308,12 +309,19 @@ export function SubjectEditor({
   mode,
   subjectId,
   backTo,
+  embedded = false,
+  onClose,
+  onSaved,
 }: {
   mode: Mode;
   subjectId: number | 'new';
   backTo: string;
+  embedded?: boolean;
+  onClose?: () => void;
+  onSaved?: () => Promise<void>;
 }) {
   const navigate = useNavigate();
+  const { refresh: refreshWorkspace } = useWorkspace();
   const [subject, setSubject] = useState<SubjectSetting>();
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loadError, setLoadError] = useState('');
@@ -419,7 +427,10 @@ export function SubjectEditor({
         if (subject) await api.subjects.update(subject.id, data);
         else await api.subjects.create(data);
       }
-      navigate(backTo);
+      await refreshWorkspace();
+      await onSaved?.();
+      if (embedded && onClose) onClose();
+      else navigate(backTo);
     });
 
   if (loadError)
@@ -445,7 +456,7 @@ export function SubjectEditor({
   return (
     <div className="ad-page sb-page">
       <div className="sb-top">
-        <div className="sb-title">
+        {!embedded && <div className="sb-title">
           <Link className="sb-back" to={backTo}>
             <ArrowLeft size={18} />
             Предметы
@@ -453,9 +464,9 @@ export function SubjectEditor({
           <h1>{title}</h1>
           <span className="sc-format">{format === 'ege' ? 'ЕГЭ' : 'ОГЭ'}</span>
           {mode === 'teacher' && <span className="sb-mine">Вы ответственный</span>}
-        </div>
+        </div>}
         <div className="sb-save">
-          <Button variant="secondary" disabled={busy} onClick={() => navigate(backTo)}>
+          <Button variant="secondary" disabled={busy} onClick={() => embedded && onClose ? onClose() : navigate(backTo)}>
             Отменить
           </Button>
           <Button disabled={busy} onClick={save}>

@@ -6,12 +6,14 @@ import { Teachers } from './Teachers';
 import { Subjects } from './Subjects';
 import { Students } from './Students';
 import { SchoolGroups } from './SchoolGroups';
+import { TrainingPage } from '../training/TrainingPage';
 
 const tabs = [
   { to: '/school/students', title: 'Ученики' },
   { to: '/school/groups', title: 'Группы' },
   { to: '/school/teachers', title: 'Сотрудники' },
   { to: '/school/subjects', title: 'Предметы' },
+  { to: '/school/training', title: 'Обучение' },
   { to: '/school/import', title: 'Импорт CRM' },
   { to: '/school/backups', title: 'Резервные копии' },
 ];
@@ -38,6 +40,7 @@ export function School() {
         <Route path="backups" element={<Backups />} />
         <Route path="teachers" element={<Teachers />} />
         <Route path="subjects" element={<Subjects />} />
+        <Route path="training" element={<TrainingPage admin />} />
         <Route path="subjects/:id" element={<SubjectEditPage />} />
         <Route path="*" element={<Navigate to="/school/students" replace />} />
       </Routes>

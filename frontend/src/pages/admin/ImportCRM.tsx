@@ -186,7 +186,12 @@ export function ImportCRM() {
   const checkRosters = () => {
     clearError();
     void run(async () => {
-      setRosterPreview(await api.import.rosters(rosterFiles, schools.map((item) => item.trim())));
+      setRosterPreview(
+        await api.import.rosters(
+          rosterFiles,
+          schools.map((item) => item.trim()),
+        ),
+      );
     });
   };
 

@@ -22,6 +22,7 @@ import { AvailableExams } from './pages/student/AvailableExams';
 import { MyResults } from './pages/student/MyResults';
 import { ResultDetail } from './pages/student/ResultDetail';
 import { HalloweenBall } from './pages/student/HalloweenBall';
+import { TrainingPage } from './pages/training/TrainingPage';
 
 export default function App() {
   const [session, setSession] = useState(loadSession);
@@ -97,6 +98,11 @@ export default function App() {
               )}
               <Route path="/results" element={<Results />} />
               <Route path="/results/new" element={<ResultNew />} />
+              {teacher ? (
+                <Route path="/training/*" element={<TrainingPage admin={false} />} />
+              ) : (
+                <Route path="/training/*" element={<Navigate to="/school/training" replace />} />
+              )}
             </Route>
           )}
           <Route path="*" element={<Navigate to={home} replace />} />

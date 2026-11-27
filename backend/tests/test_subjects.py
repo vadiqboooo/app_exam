@@ -1,5 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
+from tests.test_teacher_outside_students import import_rows
+
 
 def subject_payload(max_scores=(1, 2), name="Астрономия"):
     return {
@@ -53,7 +55,7 @@ def test_subject_settings_crud_and_totals(client):
     assert subject["id"] not in {item["id"] for item in client.get("/api/subjects").json()}
 
 
-def test_new_exam_copies_active_subject_structure(client):
+def test_existing_event_exam_uses_updated_subject_structure(client):
     configured = subject_payload((1, 3), "Информатика")
     subject = next(
         item
@@ -74,11 +76,30 @@ def test_new_exam_copies_active_subject_structure(client):
     }
 
     changed = subject_payload((5,), "Информатика")
+    changed["primary_to_secondary_scale"] = [0, 1, 2, 3, 4, 80]
     assert client.put(f"/api/subjects/{subject['id']}", json=changed).status_code == 200
 
-    # An existing exam keeps the structure that was copied at creation time.
+    # Result-entry forms and server-side validation use the current settings.
     exam = client.get(f"/api/exams/{exam_id}").json()
-    assert [task["max_score"] for task in exam["structure_data"]["tasks"]] == [1, 3]
+    assert [task["max_score"] for task in exam["structure_data"]["tasks"]] == [5]
+    assert (
+        exam["structure_data"]["primary_to_secondary_scale"]
+        == changed["primary_to_secondary_scale"]
+    )
+
+    import_rows(client, [["Иванов Иван", "Обучается", "Информатика", 10]])
+    result = client.post(
+        "/api/participations/quick-result",
+        json={
+            "student_id": 1,
+            "exam_id": exam_id,
+            "primary_score": 5,
+            "result_data": {"tasks": [{"code": "1", "score": 5}]},
+        },
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["primary_score"] == 5
+    assert result.json()["test_score"] == 80
 
 
 def test_inactive_subject_is_not_used_as_a_template(client):

@@ -370,10 +370,12 @@ export function TrainingButton({
   training,
   onOpen,
   compact,
+  label = 'Обучение',
 }: {
   training: Training;
   onOpen: () => void;
   compact?: boolean;
+  label?: string;
 }) {
   const count = Number(passed(training, 'groups')) + Number(passed(training, 'outside'));
   const state = count === 2 ? 'done' : count === 1 ? 'part' : 'none';
@@ -405,7 +407,7 @@ export function TrainingButton({
         <GraduationCap size={22} />
       )}
       <span className="training-open-text">
-        Обучение
+        {label}
         <small>
           {state === 'done' ? 'пройдено ✓' : state === 'part' ? 'пройдено 1 из 2' : 'не пройдено'}
         </small>
@@ -418,13 +420,15 @@ export function TrainingDialog({
   training,
   onChange,
   onClose,
+  initialTab = 0,
 }: {
   training: Training;
   onChange: (next: Training) => void;
   onClose: () => void;
+  initialTab?: 0 | 1;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const [tab, setTab] = useState(0);
+  const [tab, setTab] = useState(initialTab);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -440,7 +444,7 @@ export function TrainingDialog({
   const other = PARTS[1 - tab];
   const otherDone = passed(training, other.part);
   const allDone = passed(training, 'groups') && passed(training, 'outside');
-  const select = (index: number) => {
+  const select = (index: 0 | 1) => {
     setTab(index);
     setStep(0);
   };
@@ -450,7 +454,7 @@ export function TrainingDialog({
     try {
       onChange(await api.training.finish(current.part));
       if (otherDone) onClose();
-      else select(1 - tab);
+      else select((1 - tab) as 0 | 1);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Не удалось сохранить прогресс');
     } finally {
@@ -485,7 +489,7 @@ export function TrainingDialog({
             role="tab"
             aria-selected={index === tab}
             className={passed(training, part) ? 'is-done' : ''}
-            onClick={() => select(index)}
+            onClick={() => select(index as 0 | 1)}
           >
             {passed(training, part) ? '✓ ' : ''}
             {label}

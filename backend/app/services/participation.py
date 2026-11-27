@@ -98,6 +98,15 @@ def change_status(item: Participation, target: str) -> None:
         item.published_at = item.updated_at
 
 
+def reopen_published_result(item: Participation) -> None:
+    """Return one published work to the editable, unpublished state."""
+    if item.status != "published":
+        raise ValueError("Вернуть на исправление можно только опубликованный результат")
+    item.status = "checked"
+    item.published_at = None
+    item.updated_at = utcnow()
+
+
 def save_result(
     session: Session, item: Participation, data: ResultWrite, checker: str | None = None
 ) -> None:

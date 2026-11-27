@@ -20,6 +20,8 @@ def test_teacher_finishes_both_parts_and_admin_sees_it(client):
     assert first.json()["groups_at"] is not None and first.json()["outside_at"] is None
     row = _anna(client)
     assert row["training_groups_at"] is not None and row["training_outside_at"] is None
+    report = next(item for item in client.get("/api/training/admin/progress").json() if item["name"] == "Анна Сергеевна")
+    assert [(topic["topic_id"], topic["passed"]) for topic in report["topics"][:2]] == [(-1, True), (-2, False)]
 
     # Passing a part again keeps the first date.
     again = client.post("/api/training/groups", headers=headers)
@@ -30,6 +32,8 @@ def test_teacher_finishes_both_parts_and_admin_sees_it(client):
     assert client.get("/api/training", headers=headers).json() == done.json()
     row = _anna(client)
     assert row["training_groups_at"] and row["training_outside_at"]
+    report = next(item for item in client.get("/api/training/admin/progress").json() if item["name"] == "Анна Сергеевна")
+    assert all(topic["passed"] and topic["completed_at"] for topic in report["topics"][:2])
 
 
 def test_unknown_part_and_missing_employee(client):

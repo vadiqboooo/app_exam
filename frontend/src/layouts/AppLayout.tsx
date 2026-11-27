@@ -12,9 +12,8 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { api } from '../api/client';
-import type { Session, Training } from '../types';
+import type { Session, Training, TrainingTopic } from '../types';
 import { Button } from '../components/Button';
-import { TrainingButton, TrainingDialog } from '../components/TeacherTraining';
 import { useHalloween } from '../halloween/theme';
 import { HalloweenShell } from './HalloweenShell';
 
@@ -47,8 +46,10 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
   const groupsTitle = session.role === 'teacher' || myGroupsPage ? 'Мои группы' : 'Группы';
   // Whoever teaches gets the teacher's tabs, whatever other roles they hold.
   const teaches = session.role === 'teacher' || !!session.teacherId;
-  // «Предметы» appears only while an administrator keeps the teacher responsible for a subject.
+  // Responsibility changes the role label; every teacher may browse approved programs.
   const [responsible, setResponsible] = useState(false);
+  const [trainingTopics, setTrainingTopics] = useState<TrainingTopic[]>([]);
+  const [probnikTraining, setProbnikTraining] = useState<Training | null>(null);
   useEffect(() => {
     if (!teaches) return;
     api.subjects
@@ -56,16 +57,22 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
       .then((subjects) => setResponsible(subjects.length > 0))
       .catch(() => setResponsible(false));
   }, [teaches, session.token]);
-  // Progress of the guide for whoever teaches; the button stays hidden until it is known.
-  const [training, setTraining] = useState<Training | null>(null);
-  const [trainingOpen, setTrainingOpen] = useState(false);
   useEffect(() => {
-    if (!teaches) return;
-    api.training
-      .get()
-      .then(setTraining)
-      .catch(() => setTraining(null));
-  }, [teaches, session.token]);
+    if (session.role !== 'teacher') return;
+    api.training.topics().then(setTrainingTopics).catch(() => setTrainingTopics([]));
+  }, [session.role, session.token, pathname]);
+  useEffect(() => {
+    if (session.role !== 'teacher') return;
+    const refreshProbnikTraining = () => {
+      api.training.get().then(setProbnikTraining).catch(() => setProbnikTraining(null));
+    };
+    refreshProbnikTraining();
+    window.addEventListener('training-progress-updated', refreshProbnikTraining);
+    return () => window.removeEventListener('training-progress-updated', refreshProbnikTraining);
+  }, [session.role, session.token]);
+  const trainingDone = trainingTopics.filter((topic) => topic.progress.passed).length
+    + Number(!!probnikTraining?.groups_at) + Number(!!probnikTraining?.outside_at);
+  const trainingTotal = trainingTopics.length + (probnikTraining ? 2 : 0);
   const staffRoles = session.roles?.map((role) => roleNames[role]).join(' · ');
   const roleLabel =
     session.role === 'teacher' && responsible
@@ -81,16 +88,14 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
         ? [
             { to: '/groups', title: 'Мои группы', icon: Users },
             { to: '/results', title: 'Результаты', icon: BarChart3 },
-            ...(responsible ? [{ to: '/subjects', title: 'Предметы', icon: BookOpen }] : []),
+            { to: '/subjects', title: 'Предметы', icon: BookOpen },
           ]
         : [
             { to: '/', title: 'Главная', icon: LayoutDashboard },
             { to: '/exams', title: 'Пробники', icon: CalendarDays },
             { to: '/results', title: 'Результаты', icon: BarChart3 },
             ...(session.teacherId ? [{ to: '/my-groups', title: 'Мои группы', icon: Users }] : []),
-            ...(session.teacherId && responsible
-              ? [{ to: '/subjects', title: 'Предметы', icon: BookOpen }]
-              : []),
+            ...(session.teacherId ? [{ to: '/subjects', title: 'Предметы', icon: BookOpen }] : []),
             { to: '/school', title: 'Школа', icon: School },
           ];
   const staff = session.role === 'admin' || session.role === 'responsible';
@@ -113,7 +118,10 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
         <div
           className={`app-shell role-${session.role} ${
             (session.role === 'teacher' &&
-              (pathname === '/results' || pathname === '/results/new' || pathname.startsWith('/subjects'))) ||
+              (pathname === '/results' ||
+                pathname === '/results/new' ||
+                pathname.startsWith('/subjects') ||
+                pathname.startsWith('/training'))) ||
             (staff &&
               (pathname === '/' ||
                 pathname === '/exams' ||
@@ -127,7 +135,7 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
               : ''
           }`}
         >
-          <aside className={`sidebar${teaches && training ? ' has-training' : ''}`}>
+          <aside className="sidebar">
             <NavLink to="/" className="brand">
               <span className="brand-mark">Г</span>
               <span>
@@ -142,8 +150,10 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
               </span>
             </NavLink>
             <div className="mobile-account">
-              {teaches && training && (
-                <TrainingButton compact training={training} onOpen={() => setTrainingOpen(true)} />
+              {session.role === 'teacher' && (
+                <NavLink to="/training" className={`training-open-m${trainingTotal > 0 && trainingDone === trainingTotal ? ' is-done' : ''}`} aria-label={`Обучение: пройдено ${trainingDone} из ${trainingTotal} тем`}>
+                  <GraduationCap size={22} />
+                </NavLink>
               )}
               <span className="avatar">{initials(session.name)}</span>
               <span className="mobile-account-name">
@@ -163,8 +173,13 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
                 </NavLink>
               ))}
             </nav>
-            {teaches && training && (
-              <TrainingButton training={training} onOpen={() => setTrainingOpen(true)} />
+            {session.role === 'teacher' && (
+              <div className="teacher-training-actions">
+                <NavLink to="/training" className={`training-open training-course-open${trainingTotal > 0 && trainingDone === trainingTotal ? ' is-done' : ''}`}>
+                  <GraduationCap size={22} />
+                  <span className="training-open-text">Обучение<small>{trainingTotal ? `Пройдено ${trainingDone} из ${trainingTotal} тем` : 'Тем пока нет'}</small></span>
+                </NavLink>
+              </div>
             )}
             <div className="sidebar-note">
               <HelpCircle size={20} />
@@ -218,9 +233,6 @@ export function AppLayout({ session, logout }: { session: Session; logout: () =>
             </footer>
           </div>
         </div>
-        {trainingOpen && training && (
-          <TrainingDialog training={training} onChange={setTraining} onClose={() => setTrainingOpen(false)} />
-        )}
       </TopbarSlotContext.Provider>
     </SectionTitleContext.Provider>
   );

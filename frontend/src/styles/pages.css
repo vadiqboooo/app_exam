@@ -302,6 +302,14 @@ a.exam-card:hover {
 .student-card h2 {
   margin-bottom: 12px;
 }
+.student-card-phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
 .avatar-large {
   width: 65px;
   height: 65px;

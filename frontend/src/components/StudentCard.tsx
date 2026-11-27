@@ -1,4 +1,4 @@
-import { GraduationCap } from 'lucide-react';
+import { GraduationCap, Phone } from 'lucide-react';
 import type { Student } from '../types';
 
 export function StudentCard({ student }: { student: Student }) {
@@ -15,6 +15,12 @@ export function StudentCard({ student }: { student: Student }) {
             {student.is_active ? 'Активен' : 'В архиве'}
           </span>
         </div>
+        {student.phone && (
+          <a className="student-card-phone" href={`tel:${student.phone.replace(/[^+\d]/g, '')}`}>
+            <Phone size={15} />
+            {student.phone}
+          </a>
+        )}
       </div>
     </div>
   );

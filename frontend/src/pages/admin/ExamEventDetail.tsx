@@ -360,9 +360,7 @@ export function ExamEventDetail() {
                       {row.student?.full_name ?? '—'}
                     </button>
                     {row.student?.grade != null && <small>{row.student.grade} класс</small>}
-                    {row.student?.is_pending && (
-                      <small className="ad-pending">Подтвердить звонком</small>
-                    )}
+                    {row.student?.is_pending && <small className="ad-pending">Подтвердить звонком</small>}
                   </span>
                   <span>{row.exam.subject}</span>
                   <span className="ad-muted">

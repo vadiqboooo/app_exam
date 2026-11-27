@@ -52,3 +52,51 @@ class VariantEvent(Base):
     event_id: Mapped[int] = mapped_column(
         ForeignKey("exam_events.id"), primary_key=True, index=True
     )
+
+
+class ProgramSection(Base):
+    """An ordered part of a subject's teaching program."""
+
+    __tablename__ = "program_sections"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    subject_id: Mapped[int] = mapped_column(
+        ForeignKey("subjects.id", ondelete="CASCADE"), index=True
+    )
+    position: Mapped[int]
+    title: Mapped[str]
+
+
+class ProgramTopic(Base):
+    """An authored topic that can be submitted for review and approved."""
+
+    __tablename__ = "program_topics"
+    __table_args__ = (
+        CheckConstraint("status IN ('draft', 'review', 'changes', 'approved')", name="status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    section_id: Mapped[int] = mapped_column(
+        ForeignKey("program_sections.id", ondelete="CASCADE"), index=True
+    )
+    position: Mapped[int]
+    title: Mapped[str]
+    author_name: Mapped[str | None]
+    status: Mapped[str] = mapped_column(default="draft")
+    approved_by: Mapped[int | None] = mapped_column(ForeignKey("staff.id", ondelete="SET NULL"))
+    approved_at: Mapped[datetime | None]
+
+
+class ProgramMaterial(Base):
+    __tablename__ = "program_materials"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    topic_id: Mapped[int] = mapped_column(
+        ForeignKey("program_topics.id", ondelete="CASCADE"), index=True
+    )
+    filename: Mapped[str]
+    content_type: Mapped[str]
+    size: Mapped[int]
+    uploaded_at: Mapped[datetime] = mapped_column(default=utcnow)
+    scanned_at: Mapped[datetime | None]
+    data: Mapped[bytes] = deferred(mapped_column(LargeBinary, nullable=False))

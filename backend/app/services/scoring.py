@@ -6,7 +6,7 @@ from app.models import Exam, Subject
 
 
 def effective_structure(session: Session, exam: Exam) -> dict | None:
-    """Merge the exam snapshot with missing fields from its subject settings."""
+    """Use current subject settings for event exams and explicit data for standalone exams."""
     structure = dict(exam.structure_data or {})
     setting = next(
         (
@@ -22,12 +22,22 @@ def effective_structure(session: Session, exam: Exam) -> dict | None:
         None,
     )
     if setting is not None:
-        if not structure.get("tasks"):
+        if exam.event_id is not None:
+            # Event exams copy the subject template on creation. That copy must not
+            # freeze result entry after the subject's tasks or scales are edited.
+            structure = {
+                "version": 1,
+                "tasks": setting.tasks,
+                "primary_to_secondary_scale": setting.primary_to_secondary_scale,
+                "grade_scale": setting.grade_scale,
+            }
+        elif not structure.get("tasks"):
             structure["tasks"] = setting.tasks
-        if structure.get("primary_to_secondary_scale") is None:
-            structure["primary_to_secondary_scale"] = setting.primary_to_secondary_scale
-        if structure.get("grade_scale") is None:
-            structure["grade_scale"] = setting.grade_scale
+        if exam.event_id is None:
+            if structure.get("primary_to_secondary_scale") is None:
+                structure["primary_to_secondary_scale"] = setting.primary_to_secondary_scale
+            if structure.get("grade_scale") is None:
+                structure["grade_scale"] = setting.grade_scale
     if not structure.get("tasks"):
         return None
     structure.setdefault("version", 1)

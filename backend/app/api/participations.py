@@ -9,6 +9,7 @@ from app.api.dependencies import (
     ReadSession,
     WriteSession,
     get_or_404,
+    require_admin,
     staff_id,
     teacher_id,
 )
@@ -21,7 +22,13 @@ from app.schemas.participation import (
     ResultWrite,
     StatusChange,
 )
-from app.services.participation import change_status, quick_save_result, register, save_result
+from app.services.participation import (
+    change_status,
+    quick_save_result,
+    register,
+    reopen_published_result,
+    save_result,
+)
 
 router = APIRouter(prefix="/participations", tags=["participations"])
 
@@ -217,5 +224,17 @@ def publish_result(
     if item.status == "submitted":
         change_status(item, "checked")
     change_status(item, "published")
+    session.flush()
+    return item
+
+
+@router.post(
+    "/{participation_id}/unpublish",
+    response_model=ParticipationStaffRead,
+    dependencies=[Depends(require_admin)],
+)
+def unpublish_result(participation_id: int, session: WriteSession):
+    item = get_or_404(session, Participation, participation_id)
+    reopen_published_result(item)
     session.flush()
     return item

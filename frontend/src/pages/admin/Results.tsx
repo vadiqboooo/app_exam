@@ -9,20 +9,29 @@ import { Toast } from '../../components/CodeCell';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { EmptyState } from '../../components/EmptyState';
 import { ResultsByStudent } from '../../components/ResultsByStudent';
+import { ReopenResultButton } from '../../components/ReopenResultButton';
 import { buildStudentResults } from '../../lib/studentResults';
 import { statusLabels } from '../../components/StatusBadge';
 import { groupExams, score, studentGroups } from '../../lib/format';
 import { plural, shortDay } from '../../lib/adminEvents';
+import { AdminResults } from './AdminResults';
 
 const worked = ['attended', 'submitted', 'checked', 'published'];
 
 export function Results() {
+  const session = loadSession();
+  if (session?.role !== 'teacher') return <AdminResults />;
+  return <TeacherResults />;
+}
+
+function TeacherResults() {
   const { data, refresh, openResult } = useWorkspace();
   const publishing = useAction();
   const [confirming, setConfirming] = useState(false);
   const [toast, setToast] = useState('');
   const [subject, setSubject] = useState('');
   const [status, setStatus] = useState('');
+  const [reviewer, setReviewer] = useState('');
   const [off, setOff] = useState<Set<number>>(new Set());
   const [picked, setPicked] = useState<string>();
   const [group, setGroup] = useState('');
@@ -65,6 +74,9 @@ export function Results() {
   const subjects = [
     ...new Set(inEvent.map((p) => examsById.get(p.exam_id)?.subject).filter((s): s is string => !!s)),
   ];
+  const reviewers = [
+    ...new Set(inEvent.map((item) => item.checked_by).filter((name): name is string => !!name)),
+  ].sort((a, b) => a.localeCompare(b, 'ru'));
   const groupMembers = group
     ? new Set(
         data.memberships.filter((m) => m.group_id === Number(group) && !m.ended_at).map((m) => m.student_id),
@@ -76,6 +88,7 @@ export function Results() {
     if (!student || !exam) return [];
     if (subject && exam.subject !== subject) return [];
     if (status && item.status !== status) return [];
+    if (reviewer && item.checked_by !== reviewer) return [];
     if (groupMembers && !groupMembers.has(student.id)) return [];
     if (!teacher && school && student.school !== school) return [];
     if (!teacher && needle && !student.full_name.toLowerCase().includes(needle)) return [];
@@ -228,6 +241,7 @@ export function Results() {
                   onChange={(e) => {
                     setPicked(e.target.value);
                     setSubject('');
+                    setReviewer('');
                     setOff(new Set());
                   }}
                 >
@@ -276,6 +290,19 @@ export function Results() {
                     ))}
                 </select>
               </label>
+              {!teacher && (
+                <label className="rs-f-reviewer">
+                  Кто проверил
+                  <select value={reviewer} onChange={(e) => setReviewer(e.target.value)}>
+                    <option value="">Все проверяющие</option>
+                    {reviewers.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
             <div className="rs-tabs-m" role="group" aria-label="Статус">
               {(
@@ -361,8 +388,17 @@ export function Results() {
                       </span>
                       <strong>{score(item.primary_score)}</strong>
                       <strong className="rs-test">{score(item.test_score)}</strong>
-                      <span className="rs-group">
+                      <span className="rs-reviewer">
                         {item.checked_by && item.checked_by === session?.name ? 'Вы' : item.checked_by || '—'}
+                        {item.status === 'published' && (
+                          <ReopenResultButton
+                            id={item.id}
+                            studentName={student.full_name}
+                            subject={exam.subject}
+                            onReopened={refresh}
+                            compact
+                          />
+                        )}
                       </span>
                     </div>
                   );
@@ -370,32 +406,42 @@ export function Results() {
               </div>
             </section>
             <div className="rs-cards">
-              {rows.map(({ item, student }) => {
+              {rows.map(({ item, student, exam }) => {
                 const canOpen = ['submitted', 'checked', 'published'].includes(item.status);
                 const final = item.status === 'checked' || item.status === 'published';
                 const groups = studentGroups(student.id, data.memberships, data.groups);
                 return (
-                  <button
-                    type="button"
-                    key={item.id}
-                    className="rs-card"
-                    disabled={!canOpen}
-                    onClick={() => openResult(item.id)}
-                  >
-                    <span className={`rs-tile${final ? ' is-final' : ''}`}>
-                      <b>{score(item.test_score)}</b>
-                      <small>тест.</small>
-                    </span>
-                    <span className="rs-card-main">
-                      <strong>{student.full_name}</strong>
-                      <small>
-                        {groups[0]?.source_name ?? 'Без группы'} · перв. {score(item.primary_score)}
-                      </small>
-                    </span>
-                    <span className={`rs-badge rs-badge-${item.status}`}>
-                      {item.status === 'submitted' ? 'Сдал' : statusLabels[item.status]}
-                    </span>
-                  </button>
+                  <div className="rs-card-wrap" key={item.id}>
+                    <button
+                      type="button"
+                      className="rs-card"
+                      disabled={!canOpen}
+                      onClick={() => openResult(item.id)}
+                    >
+                      <span className={`rs-tile${final ? ' is-final' : ''}`}>
+                        <b>{score(item.test_score)}</b>
+                        <small>тест.</small>
+                      </span>
+                      <span className="rs-card-main">
+                        <strong>{student.full_name}</strong>
+                        <small>
+                          {groups[0]?.source_name ?? 'Без группы'} · перв. {score(item.primary_score)}
+                        </small>
+                      </span>
+                      <span className={`rs-badge rs-badge-${item.status}`}>
+                        {item.status === 'submitted' ? 'Сдал' : statusLabels[item.status]}
+                      </span>
+                    </button>
+                    {item.status === 'published' && (
+                      <ReopenResultButton
+                        id={item.id}
+                        studentName={student.full_name}
+                        subject={exam.subject}
+                        onReopened={refresh}
+                        compact
+                      />
+                    )}
+                  </div>
                 );
               })}
             </div>

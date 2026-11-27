@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ChevronRight, Plus } from 'lucide-react';
+import { BookOpen, ChevronRight, Plus } from 'lucide-react';
 import { api } from '../../api/client';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorNotice } from '../../components/ErrorNotice';
 import { useAction } from '../../hooks/useAction';
 import { useLoad } from '../../hooks/useLoad';
-import type { SubjectSetting } from '../../types';
+import { plural } from '../../lib/adminEvents';
+import type { SubjectProgram, SubjectSetting } from '../../types';
 
 const loadSubjects = () => api.subjects.list();
 const formatName = (format: SubjectSetting['format']) => (format === 'ege' ? 'ЕГЭ' : 'ОГЭ');
@@ -18,6 +19,12 @@ const shortName = (name: string) => {
 
 type StatusFilter = 'all' | 'on' | 'off';
 type FormatFilter = 'all' | 'ege' | 'oge';
+const programLabel = (program: SubjectProgram | null | undefined) => {
+  if (program === undefined) return 'Загружаем…';
+  if (program === null) return 'Недоступна';
+  const topics = program.sections.reduce((sum, section) => sum + section.topics.length, 0);
+  return topics ? plural(topics, 'тема', 'темы', 'тем') : 'Нет программы';
+};
 
 export function Subjects() {
   const { data, error, loading, refresh } = useLoad(loadSubjects);
@@ -25,7 +32,17 @@ export function Subjects() {
   const toggling = useAction();
   const [status, setStatus] = useState<StatusFilter>('all');
   const [format, setFormat] = useState<FormatFilter>('all');
+  const [programs, setPrograms] = useState<Record<number, SubjectProgram | null>>({});
   const all = data ?? [];
+  useEffect(() => {
+    if (!data?.length) return;
+    let active = true;
+    void Promise.all(data.map(async (subject) => {
+      try { return [subject.id, await api.subjects.program.get(subject.id)] as const; }
+      catch { return [subject.id, null] as const; }
+    })).then((entries) => { if (active) setPrograms(Object.fromEntries(entries)); });
+    return () => { active = false; };
+  }, [data]);
   const activeCount = all.filter((subject) => subject.is_active).length;
   const subjects = all.filter(
     (subject) =>
@@ -92,6 +109,7 @@ export function Subjects() {
             <span>ЗАДАНИЙ</span>
             <span>МАКС. БАЛЛ</span>
             <span>ОТВЕТСТВЕННЫЙ</span>
+            <span>ПРОГРАММА</span>
             <span>АКТИВЕН</span>
             <span />
           </div>
@@ -100,7 +118,7 @@ export function Subjects() {
               <button
                 type="button"
                 className="sj-open"
-                aria-label={`Настройки: ${subject.name}`}
+                aria-label={`Открыть программу: ${subject.name} ${formatName(subject.format)}`}
                 onClick={() => navigate(`/school/subjects/${subject.id}`)}
               />
               <span className="sj-name">
@@ -114,6 +132,10 @@ export function Subjects() {
               <strong>{subject.max_primary_score}</strong>
               <span className={`sj-resp${subject.responsible_name ? '' : ' is-none'}`}>
                 {subject.responsible_name ? shortName(subject.responsible_name) : 'Не назначен'}
+              </span>
+              <span className="sj-program">
+                <BookOpen size={16} />
+                {programLabel(programs[subject.id])}
               </span>
               <span className="sj-active">
                 <button

@@ -13,6 +13,7 @@ import {
 import { score } from '../lib/format';
 import { plural } from '../lib/adminEvents';
 import { ErrorNotice } from './ErrorNotice';
+import { ReopenResultButton } from './ReopenResultButton';
 
 type Person = ReturnType<typeof buildStudentResults>[number];
 
@@ -89,6 +90,14 @@ function Feedback({
                   </em>
                 </b>
                 <small>первичные баллы: {score(participation.primary_score)}</small>
+                {participation.status === 'published' && (
+                  <ReopenResultButton
+                    id={participation.id}
+                    studentName={person.student.full_name}
+                    subject={exam.subject}
+                    onReopened={onSaved}
+                  />
+                )}
               </div>
             );
           })}

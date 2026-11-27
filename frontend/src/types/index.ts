@@ -111,6 +111,63 @@ export interface Training {
   outside_at: string | null;
 }
 export type TrainingPart = 'groups' | 'outside';
+export type TrainingQuestionKind = 'single' | 'multiple' | 'text';
+export interface TrainingQuestion {
+  id: number;
+  prompt: string;
+  kind: TrainingQuestionKind;
+  options: string[];
+  answer?: number[] | string;
+}
+export interface TrainingQuestionWrite {
+  prompt: string;
+  kind: TrainingQuestionKind;
+  options: string[];
+  answer: number[] | string;
+}
+export interface TrainingTopicWrite {
+  title: string;
+  description: string;
+  position: number;
+  video_url: string | null;
+  material_text: string;
+  published: boolean;
+  pass_percent: number;
+  questions: TrainingQuestionWrite[];
+}
+export interface TrainingTopic extends Omit<TrainingTopicWrite, 'questions'> {
+  id: number;
+  questions: TrainingQuestion[];
+  progress: {
+    video_percent: number;
+    video_position_seconds: number;
+    material_read: boolean;
+    best_score: number | null;
+    completed_at: string | null;
+    passed: boolean;
+  };
+  attempts: { id: number; score: number; total: number; created_at: string }[];
+}
+export interface TrainingTeacherProgress {
+  id: number;
+  name: string;
+  topics: {
+    topic_id: number;
+    title: string;
+    kind?: 'legacy';
+    passed: boolean;
+    has_video: boolean;
+    has_material: boolean;
+    question_count: number;
+    pass_percent: number;
+    video_percent: number;
+    video_position_seconds: number;
+    material_read: boolean;
+    best_score: number | null;
+    completed_at: string | null;
+    attempts: { id: number; score: number; total: number; created_at: string }[];
+  }[];
+}
 export interface TeacherWrite {
   last_name: string;
   first_name: string;
@@ -166,6 +223,39 @@ export type SubjectContentWrite = Pick<
   SubjectSettingWrite,
   'tasks' | 'primary_to_secondary_scale' | 'grade_scale'
 >;
+export type ProgramTopicStatus = 'draft' | 'review' | 'changes' | 'approved';
+export interface ProgramTopic {
+  id: number;
+  title: string;
+  author_name: string | null;
+  status: ProgramTopicStatus;
+  approved_at: string | null;
+}
+export interface ProgramSection {
+  id: number;
+  title: string;
+  topics: ProgramTopic[];
+}
+export interface SubjectProgram {
+  subject_id: number;
+  can_edit: boolean;
+  can_review: boolean;
+  sections: ProgramSection[];
+}
+export interface ProgramMaterial {
+  id: number;
+  filename: string;
+  size: number;
+  uploaded_at: string;
+  scanned_at: string | null;
+}
+export interface SubjectProgramWrite {
+  sections: {
+    id?: number;
+    title: string;
+    topics: { id?: number; title: string }[];
+  }[];
+}
 export interface SubjectVariant {
   id: number;
   subject_id: number;

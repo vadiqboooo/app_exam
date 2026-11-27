@@ -349,6 +349,12 @@ export function Students() {
                     <span className="sc-name">
                       <Link to={`/students/${student.id}`}>{student.full_name}</Link>
                       {student.school && <small>{student.school}</small>}
+                      {student.phone && (
+                        <a className="sc-student-phone" href={`tel:${student.phone.replace(/[^+\d]/g, '')}`}>
+                          <Phone size={13} />
+                          {student.phone}
+                        </a>
+                      )}
                     </span>
                     <span>{student.grade ?? '—'}</span>
                     <span>{plural(groups.length, 'группа', 'группы', 'групп')}</span>

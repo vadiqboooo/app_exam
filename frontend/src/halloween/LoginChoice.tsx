@@ -205,7 +205,7 @@ function LightChoice({
 }) {
   const event = useCurrentEvent();
   return (
-    <div className="lg-page">
+    <div className="lg-page lg-choice">
       <section className="lg-side lg-side-purple">
         <div className="lg-brand">
           <span className="lg-brand-mark">Г</span>

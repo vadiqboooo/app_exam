@@ -75,8 +75,11 @@ def test_approve_activates_student_with_grade_group_and_own_code(client, engine)
     )
     assert response.status_code == 200
     assert response.json()["is_active"] is True
+    assert response.json()["phone"] == "+7 (912) 345-67-89"
     assert client.get("/api/students/applications").json() == []
-    assert [s["full_name"] for s in client.get("/api/students").json()] == ["Лебедев Артём"]
+    [approved] = client.get("/api/students").json()
+    assert approved["full_name"] == "Лебедев Артём"
+    assert approved["phone"] == response.json()["phone"]
     with transaction(engine) as session:
         assert session.query(Membership).filter_by(student_id=student_id).count() == 1
 

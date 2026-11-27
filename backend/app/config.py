@@ -16,6 +16,9 @@ class Settings:
         )
     )
     api_key: str = field(default_factory=lambda: os.getenv("API_KEY", ""))
+    # clamd must listen on a local-only TCP socket; uploads fail closed if unavailable.
+    clamav_host: str = field(default_factory=lambda: os.getenv("CLAMAV_HOST", "127.0.0.1"))
+    clamav_port: int = field(default_factory=lambda: int(os.getenv("CLAMAV_PORT", "3310")))
     # Google Cloud Storage for database backups; empty bucket means «not configured».
     gcs_bucket: str = field(default_factory=lambda: os.getenv("GCS_BUCKET", ""))
     gcs_prefix: str = field(default_factory=lambda: os.getenv("GCS_PREFIX", "probnik-backups/"))

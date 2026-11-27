@@ -32,6 +32,10 @@ import type {
   SubjectContentWrite,
   SubjectSetting,
   SubjectSettingWrite,
+  SubjectProgram,
+  ProgramTopicStatus,
+  SubjectProgramWrite,
+  ProgramMaterial,
   SubjectVariant,
   ParentStatus,
   StaffRole,
@@ -40,6 +44,9 @@ import type {
   TeachersStep,
   Training,
   TrainingPart,
+  TrainingTopic,
+  TrainingTopicWrite,
+  TrainingTeacherProgress,
   ThemeSetting,
   EnabledThemes,
 } from '../types';
@@ -79,6 +86,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   if (response.status === 204) return undefined as T;
   return response.json();
+}
+
+async function downloadFile(path: string): Promise<Blob> {
+  const headers = new Headers();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const response = await fetch(`/api${path}`, { headers });
+  if (!response.ok) throw new Error(`Не удалось скачать файл (${response.status})`);
+  return response.blob();
 }
 
 async function all<T>(path: string): Promise<T[]> {
@@ -171,7 +186,13 @@ export const api = {
       request<Student>(`/students/applications/${id}/merge`, json('POST', { target_id })),
     update: (
       id: number,
-      data: { last_name: string; first_name: string; phone: string | null; grade: number | null; school: string | null },
+      data: {
+        last_name: string;
+        first_name: string;
+        phone: string | null;
+        grade: number | null;
+        school: string | null;
+      },
     ) => request<Student>(`/students/${id}`, json('PUT', data)),
     archive: (id: number) => request<Student>(`/students/${id}`, { method: 'DELETE' }),
     rejectApplication: (id: number) =>
@@ -199,10 +220,90 @@ export const api = {
   training: {
     get: () => request<Training>('/training'),
     finish: (part: TrainingPart) => request<Training>(`/training/${part}`, { method: 'POST' }),
+    topics: () => request<TrainingTopic[]>('/training/topics'),
+    saveProgress: (id: number, data: { video_percent?: number; video_position_seconds?: number; material_read?: boolean }) =>
+      request<TrainingTopic>(`/training/topics/${id}/progress`, json('PATCH', data)),
+    saveVideoPositionOnExit: (id: number, percent: number, seconds: number) => {
+      const token = loadSession()?.token;
+      void fetch(`/api/training/topics/${id}/progress`, {
+        method: 'PATCH',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ video_percent: percent, video_position_seconds: seconds }),
+      }).catch(() => undefined);
+    },
+    submit: (id: number, answers: Record<number, number[] | string>) =>
+      request<{ score: number; total: number; passed: boolean; topic: TrainingTopic }>(
+        `/training/topics/${id}/attempts`,
+        json('POST', { answers }),
+      ),
+    adminTopics: () => request<TrainingTopic[]>('/training/admin/topics'),
+    createTopic: (data: TrainingTopicWrite) =>
+      request<TrainingTopic>('/training/admin/topics', json('POST', data)),
+    updateTopic: (id: number, data: TrainingTopicWrite) =>
+      request<TrainingTopic>(`/training/admin/topics/${id}`, json('PUT', data)),
+    uploadVideo: (id: number, file: File, uploadId: string, onProgress: (percent: number) => void, onUploaded: () => void) =>
+      new Promise<{ video_url: string; qualities: number[] }>((resolve, reject) => {
+        const body = new FormData();
+        body.append('file', file);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `/api/training/admin/topics/${id}/video`);
+        const token = loadSession()?.token;
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.setRequestHeader('X-Upload-Id', uploadId);
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) onProgress(Math.min(100, Math.round(event.loaded / event.total * 100)));
+        };
+        xhr.upload.onload = onUploaded;
+        xhr.onerror = () => reject(new Error('Не удалось передать видео на сервер'));
+        xhr.onload = () => {
+          let result: { detail?: string; video_url?: string; qualities?: number[] };
+          try { result = JSON.parse(xhr.responseText || '{}'); }
+          catch { result = {}; }
+          if (xhr.status >= 200 && xhr.status < 300 && result.video_url && result.qualities)
+            resolve({ video_url: result.video_url, qualities: result.qualities });
+          else reject(new Error(typeof result.detail === 'string' ? result.detail : 'Не удалось загрузить видео'));
+        };
+        xhr.send(body);
+      }),
+    videoJob: (uploadId: string) => request<{ stage: string; percent: number | null }>(
+      `/training/admin/video-jobs/${uploadId}`,
+    ),
+    deleteVideo: (id: number) => request<TrainingTopic>(`/training/admin/topics/${id}/video`, {
+      method: 'DELETE',
+    }),
+    deleteTopic: (id: number) => request<void>(`/training/admin/topics/${id}`, { method: 'DELETE' }),
+    adminProgress: () => request<TrainingTeacherProgress[]>('/training/admin/progress'),
   },
   subjects: {
     list: () => all<SubjectSetting>('/subjects'),
     mine: () => request<SubjectSetting[]>('/subjects/mine'),
+    program: {
+      get: (id: number) => request<SubjectProgram>(`/subjects/${id}/program`),
+      save: (id: number, data: SubjectProgramWrite) =>
+        request<SubjectProgram>(`/subjects/${id}/program`, json('PUT', data)),
+      setTopicStatus: (id: number, topicId: number, status: ProgramTopicStatus) =>
+        request<SubjectProgram>(
+          `/subjects/${id}/program/topics/${topicId}/status`,
+          json('PATCH', { status }),
+        ),
+      materials: (id: number, topicId: number) =>
+        request<ProgramMaterial[]>(`/subjects/${id}/program/topics/${topicId}/materials`),
+      uploadMaterial: (id: number, topicId: number, file: File) => {
+        const body = new FormData();
+        body.append('file', file);
+        return request<ProgramMaterial>(`/subjects/${id}/program/topics/${topicId}/materials`, {
+          method: 'POST',
+          body,
+        });
+      },
+      deleteMaterial: (id: number, topicId: number, materialId: number) =>
+        request<void>(`/subjects/${id}/program/topics/${topicId}/materials/${materialId}`, {
+          method: 'DELETE',
+        }),
+      downloadMaterial: (id: number, topicId: number, materialId: number) =>
+        downloadFile(`/subjects/${id}/program/topics/${topicId}/materials/${materialId}/download`),
+    },
     updateContent: (id: number, data: SubjectContentWrite) =>
       request<SubjectSetting>(`/subjects/${id}/content`, json('PUT', data)),
     variants: {
@@ -270,6 +371,7 @@ export const api = {
       request<Participation>(`/participations/${id}/result`, json('PUT', data)),
     publish: (id: number, data: ResultWrite) =>
       request<Participation>(`/participations/${id}/publish`, json('POST', data)),
+    unpublish: (id: number) => request<Participation>(`/participations/${id}/unpublish`, { method: 'POST' }),
     saveFeedback: (
       participation_ids: number[],
       data: { feedback?: string | null; parent_status?: ParentStatus },

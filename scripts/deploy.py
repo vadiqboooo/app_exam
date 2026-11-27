@@ -1025,7 +1025,7 @@ command -v ss >/dev/null 2>&1 || {
 PROBE_SCRIPT = f"""echo '##SS'; ss -ltnpH 2>/dev/null || true
 echo '##NGINX'; if command -v nginx >/dev/null 2>&1; then echo yes; else echo no; fi
 echo '##UFW'; (ufw status 2>/dev/null || true)
-echo '##STATE'; cat {STATE_PATH} 2>/dev/null || true
+echo '##STATE'; cat {STATE_PATH} 2>/dev/null || true; echo
 echo '##PID'; systemctl show {SERVICE} -p MainPID --value 2>/dev/null || true
 echo '##UNIT'; if systemctl cat {SERVICE} >/dev/null 2>&1; then echo yes; else echo no; fi
 """
@@ -1386,7 +1386,7 @@ def setup_vps(remote: Remote, plan: Plan) -> None:
     lines = [
         "export DEBIAN_FRONTEND=noninteractive",
         "apt-get -o DPkg::Lock::Timeout=300 update -y",
-        "apt-get -o DPkg::Lock::Timeout=300 install -y curl ca-certificates tar",
+        "apt-get -o DPkg::Lock::Timeout=300 install -y curl ca-certificates tar ffmpeg",
     ]
     if plan.install_nginx:
         lines += [
@@ -2237,6 +2237,13 @@ def update(cfg: Config) -> int:
             upload(remote, archive)
 
         with progress.step("Устанавливаю зависимости и обновляю базу"):
+            remote.script(
+                "if ! command -v ffmpeg >/dev/null 2>&1; then "
+                "export DEBIAN_FRONTEND=noninteractive; "
+                "apt-get -o DPkg::Lock::Timeout=300 update -y && "
+                "apt-get -o DPkg::Lock::Timeout=300 install -y ffmpeg; fi",
+                timeout=1800,
+            )
             install_dependencies(remote)
 
         plan = Plan(
@@ -2254,6 +2261,7 @@ def update(cfg: Config) -> int:
             verify(remote, cfg, plan, bool(state.get("https")), strict=False)
 
         if not cfg.dry_run:
+            state.pop("legacy", None)
             state["version"] = version
             state["commit"] = commit
             state["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())

@@ -374,7 +374,13 @@ export function ExamForm({
             Отмена
           </Button>
           <Button type="submit" disabled={busy}>
-            {busy ? 'Сохраняем…' : wasDraft ? 'Опубликовать' : editing ? 'Сохранить изменения' : 'Создать пробник'}
+            {busy
+              ? 'Сохраняем…'
+              : wasDraft
+                ? 'Опубликовать'
+                : editing
+                  ? 'Сохранить изменения'
+                  : 'Создать пробник'}
           </Button>
         </div>
       </form>
