@@ -47,7 +47,8 @@ def encode_video(data: bytes, asset_id: str, on_progress: Callable[[int], None] 
             variant.mkdir()
             command = [
                 ffmpeg, "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(source),
-                "-vf", f"scale=-2:{target_height}", "-c:v", "libx264", "-preset", "veryfast",
+                "-threads", "1", "-filter_threads", "1", "-vf", f"scale=-2:{target_height}",
+                "-c:v", "libx264", "-preset", "veryfast", "-threads", "1",
                 "-pix_fmt", "yuv420p", "-b:v", str(bitrate), "-maxrate", str(bitrate),
                 "-bufsize", str(bitrate * 2), "-c:a", "aac", "-b:a", "128k",
                 "-force_key_frames", "expr:gte(t,n_forced*4)", "-progress", "pipe:1",

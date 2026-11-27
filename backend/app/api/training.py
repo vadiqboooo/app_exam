@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import delete, select
 
 from app.api.dependencies import ReadSession, WriteSession, require_admin, staff_id
+from app.database import transaction
 from app.models import Staff, TrainingAttempt, TrainingProgress, TrainingQuestion, TrainingTopic
 from app.schemas.training import AttemptWrite, ProgressWrite, TopicWrite
 from app.services.malware_scan import scan_upload
@@ -187,11 +188,13 @@ def _video_asset(url: str | None) -> str | None:
 
 
 @router.post("/admin/topics/{topic_id}/video", dependencies=[Depends(require_admin)])
-def upload_video(topic_id: int, file: UploadFile, request: Request, session: WriteSession,
+def upload_video(topic_id: int, file: UploadFile, request: Request,
                  upload_id: str = Header(alias="X-Upload-Id")):
     if not re.fullmatch(r"[0-9a-f]{32}", upload_id):
         raise HTTPException(400, "Неверный идентификатор загрузки")
-    topic = _topic(session, topic_id)
+    engine = request.app.state.engine
+    with transaction(engine) as session:
+        _topic(session, topic_id)
     with _video_jobs_lock:
         expired = [key for key, value in _video_jobs.items() if time.monotonic() - value["updated"] > 3600]
         for key in expired:
@@ -208,13 +211,19 @@ def upload_video(topic_id: int, file: UploadFile, request: Request, session: Wri
         _set_video_job(upload_id, "Подготовка видео", 0)
         asset_id = secrets.token_hex(16)
         qualities = encode_video(data, asset_id, lambda value: _set_video_job(upload_id, "Подготовка видео", value))
-        old_asset = _video_asset(topic.video_url)
-        topic.video_url = f"/api/training/media/{asset_id}/master.m3u8"
-        for progress in session.scalars(select(TrainingProgress).where(TrainingProgress.topic_id == topic.id)):
-            progress.video_percent = 0
-            progress.video_position_seconds = 0
-            progress.completed_at = None
-        session.flush()
+        try:
+            with transaction(engine, write=True) as session:
+                topic = _topic(session, topic_id)
+                old_asset = _video_asset(topic.video_url)
+                topic.video_url = f"/api/training/media/{asset_id}/master.m3u8"
+                for progress in session.scalars(select(TrainingProgress).where(TrainingProgress.topic_id == topic.id)):
+                    progress.video_percent = 0
+                    progress.video_position_seconds = 0
+                    progress.completed_at = None
+                session.flush()
+        except Exception:
+            shutil.rmtree(VIDEO_ROOT / asset_id, ignore_errors=True)
+            raise
         if old_asset:
             shutil.rmtree(VIDEO_ROOT / old_asset, ignore_errors=True)
         _set_video_job(upload_id, "Готово", 100)

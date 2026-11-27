@@ -1,4 +1,6 @@
 from app.api import training as training_api
+from app.database import transaction
+from app.models import TrainingTopic
 
 from tests.test_training import _teacher
 
@@ -13,6 +15,9 @@ def test_training_video_upload_and_authorized_stream(client, monkeypatch, tmp_pa
     monkeypatch.setattr(training_api, "scan_upload", lambda *_args: None)
 
     def fake_encode(_data, asset_id, on_progress):
+        # Encoding must not hold the SQLite write lock: other users need the DB.
+        with transaction(client.app.state.engine, write=True) as session:
+            session.get(TrainingTopic, topic["id"]).description = "Database remains writable"
         on_progress(50)
         folder = tmp_path / asset_id
         (folder / "360p").mkdir(parents=True)
